@@ -1,0 +1,91 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+android {
+    namespace 'com.banner.cloud'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.banner.cloud'
+        minSdk 28
+        // 28 like Bannerlator: the Xbox backend runs as an executable from nativeLibraryDir.
+        targetSdk 28
+        versionCode 1
+        versionName '0.1.0'
+        ndk { abiFilters 'arm64-v8a' }
+        buildConfigField 'String', 'GIT_SHA', "\"${System.getenv('GITHUB_SHA')?.take(8) ?: 'local'}\""
+    }
+
+    signingConfigs {
+        // AOSP testkey (public test key, same as Bannerlator's builds), v1 + v2 + v3.
+        testkey {
+            storeFile file("${rootDir}/keystore/testkey.p12")
+            storeType 'PKCS12'
+            storePassword 'android'
+            keyAlias 'testkey'
+            keyPassword 'android'
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
+        }
+    }
+
+    buildTypes {
+        debug { signingConfig signingConfigs.testkey }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.testkey
+        }
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+
+    ndkVersion '29.0.14206865'
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    packagingOptions {
+        jniLibs {
+            // The backend executables (libxodus_*.so) must be extracted to nativeLibraryDir.
+            useLegacyPackaging = true
+        }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
+
+dependencies {
+    implementation platform('androidx.compose:compose-bom:2024.02.00')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.ui:ui-graphics'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-extended'
+    implementation 'androidx.activity:activity-compose:1.8.2'
+    implementation 'androidx.lifecycle:lifecycle-runtime-compose:2.7.0'
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.preference:preference-ktx:1.2.1'
+    implementation 'androidx.webkit:webkit:1.11.0'
+    implementation 'io.coil-kt:coil-compose:2.6.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    // Google's WebRTC (BSD) for the native player (XboxNativePlayerActivity), as in Bannerlator.
+    implementation 'io.github.webrtc-sdk:android:125.6422.07'
+}

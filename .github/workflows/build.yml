@@ -1,0 +1,145 @@
+# BannerCloud APK: the Xbox backend (tools/xbox, Bannerlator's recipe) for Android, then the app,
+# signed with the AOSP testkey (v1 + v2 + v3). Output: artifact BannerCloud-<sha8> (the APK + sha256).
+name: Build APK
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - name: Set up Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Install NDKs + cmake (only what the runner lacks)
+      run: |
+        set -euo pipefail
+        SDK_ROOT="${ANDROID_SDK_ROOT}"
+        MISSING=""
+        [ -f "$SDK_ROOT/ndk/26.1.10909125/source.properties" ] || MISSING="$MISSING ndk;26.1.10909125"
+        [ -f "$SDK_ROOT/ndk/29.0.14206865/source.properties" ] || MISSING="$MISSING ndk;29.0.14206865"
+        [ -x "$SDK_ROOT/cmake/3.22.1/bin/cmake" ] || MISSING="$MISSING cmake;3.22.1"
+        if [ -n "$MISSING" ]; then
+          if [ ! -f "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" ]; then
+            curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o /tmp/cmdline-tools.zip
+            unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools/
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            mv /tmp/cmdline-tools/cmdline-tools "$SDK_ROOT/cmdline-tools/latest" 2>/dev/null || true
+          fi
+          echo "Installing:$MISSING"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install $MISSING >/dev/null
+        fi
+        echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
+
+    # --- Xbox backend (Xodus CLI + account service), keyed on tools/xbox ---------------------------
+    - name: Restore the Xbox backend
+      id: xbox-out
+      uses: actions/cache/restore@v4
+      with:
+        path: build-xbox/out
+        key: xbox-out-${{ hashFiles('tools/xbox/**') }}
+
+    - name: Restore the Xbox build cache (only when the backend must be built)
+      if: steps.xbox-out.outputs.cache-hit != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          build-xbox
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+        key: xbox-build-${{ hashFiles('tools/xbox/**') }}-${{ github.run_id }}
+        restore-keys: |
+          xbox-build-${{ hashFiles('tools/xbox/**') }}-
+          xbox-build-
+
+    - name: Build the Xbox backend
+      if: steps.xbox-out.outputs.cache-hit != 'true'
+      timeout-minutes: 90
+      run: |
+        set -euo pipefail
+        rm -rf build-xbox/source-* build-xbox/out
+        bash tools/xbox/build-android.sh build-xbox/out
+
+    - name: Save the Xbox build cache
+      if: always() && steps.xbox-out.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: |
+          build-xbox
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+        key: xbox-build-${{ hashFiles('tools/xbox/**') }}-${{ github.run_id }}
+      continue-on-error: true
+
+    - name: Save the Xbox backend
+      if: steps.xbox-out.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: build-xbox/out
+        key: xbox-out-${{ hashFiles('tools/xbox/**') }}
+      continue-on-error: true
+
+    - name: Stage the Xbox backend into the APK
+      run: |
+        set -euo pipefail
+        O=build-xbox/out
+        install -D -m755 "$O/bin/libxodus_cli.so" app/src/main/jniLibs/arm64-v8a/libxodus_cli.so
+        install -D -m755 "$O/bin/libxodus_service.so" app/src/main/jniLibs/arm64-v8a/libxodus_service.so
+        mkdir -p app/src/main/assets/xbox
+        cp "$O"/LICENSE.* "$O"/backend.lock.json "$O"/version app/src/main/assets/xbox/
+        ls -l app/src/main/jniLibs/arm64-v8a/ app/src/main/assets/xbox
+
+    # --- The app -----------------------------------------------------------------------------------
+    - name: Build the APK
+      run: |
+        chmod +x gradlew
+        ./gradlew assembleRelease --no-daemon --stacktrace
+
+    - name: Check the signature and contents
+      run: |
+        set -euo pipefail
+        APK=app/build/outputs/apk/release/app-release.apk
+        BT=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
+        "$BT/apksigner" verify --verbose --print-certs "$APK" | tee verify.txt
+        grep -q "Verified using v1 scheme (JAR signing): true" verify.txt
+        grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" verify.txt
+        grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" verify.txt
+        unzip -l "$APK" | grep -E "lib/arm64-v8a/(libvulkan_renderer|libxodus_cli|libxodus_service|libjingle_peerconnection_so)\.so"
+        test "$(unzip -l "$APK" | grep -cE 'lib/arm64-v8a/(libvulkan_renderer|libxodus_cli|libxodus_service)\.so')" = 3
+        SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)
+        mkdir -p out
+        cp "$APK" "out/BannerCloud-${SHA}.apk"
+        (cd out && sha256sum "BannerCloud-${SHA}.apk" | tee "BannerCloud-${SHA}.apk.sha256")
+        echo "SHA8=${SHA}" >> "$GITHUB_ENV"
+
+    - name: Upload the APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: BannerCloud-${{ env.SHA8 }}
+        path: out/
+        retention-days: 30
+
+    - name: Upload the backend's corresponding source
+      if: steps.xbox-out.outputs.cache-hit != 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: xbox-corresponding-source
+        path: build-xbox/xodus-bannercloud-source.tar.xz
+        retention-days: 30
+        if-no-files-found: ignore
