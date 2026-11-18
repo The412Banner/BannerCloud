@@ -1,0 +1,31 @@
+# Quick compile check of the app alone (no Xbox backend), started by hand.
+name: Compile check
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: gradle/actions/setup-gradle@v4
+    - name: Install NDK 29 + cmake (only what the runner lacks)
+      run: |
+        SDK_ROOT="${ANDROID_SDK_ROOT}"
+        MISSING=""
+        [ -f "$SDK_ROOT/ndk/29.0.14206865/source.properties" ] || MISSING="$MISSING ndk;29.0.14206865"
+        [ -x "$SDK_ROOT/cmake/3.22.1/bin/cmake" ] || MISSING="$MISSING cmake;3.22.1"
+        if [ -n "$MISSING" ]; then yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install $MISSING >/dev/null || true; fi
+        test -f "$SDK_ROOT/ndk/29.0.14206865/source.properties"
+    - name: Build the APK (no backend)
+      run: |
+        chmod +x gradlew
+        ./gradlew assembleRelease --no-daemon --stacktrace
