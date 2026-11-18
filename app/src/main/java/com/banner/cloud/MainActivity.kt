@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -27,7 +28,6 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -89,6 +89,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -358,7 +359,6 @@ private fun LibraryScreen(activity: MainActivity, account: String, shownName: St
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GridPage(
     games: List<XboxGame>, shown: List<XboxGame>, loaded: Boolean, syncing: Boolean, shownName: String, filter: Filter,
@@ -416,6 +416,20 @@ private fun GridPage(
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
                     else -> {
                         val first = remember { FocusRequester() }
+                        // A new filter fades the grid in from the top; a new search jumps to the top. (No per-card
+                        // placement animation: with hundreds of cards changing at once it left cards overlapping.)
+                        val fade = remember { Animatable(1f) }
+                        var lastFilter by remember { mutableStateOf(filter) }
+                        var lastQuery by remember { mutableStateOf(query) }
+                        LaunchedEffect(filter, query) {
+                            if (filter != lastFilter) {
+                                lastFilter = filter; lastQuery = query
+                                fade.snapTo(0f); runCatching { gridState.scrollToItem(0) }; fade.animateTo(1f, tween(220))
+                            } else if (query != lastQuery) {
+                                lastQuery = query
+                                runCatching { gridState.scrollToItem(0) }
+                            }
+                        }
                         // Coming back from a game's page with a controller: focus that game's card once.
                         var restorePending by remember { mutableStateOf(gamepad && restoreId != null) }
                         LazyVerticalGrid(
@@ -423,12 +437,12 @@ private fun GridPage(
                             columns = GridCells.Adaptive(if (compact) 110.dp else if (wide) 150.dp else 128.dp),
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 24.dp),
                             horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = fade.value },
                         ) {
                             items(shown, key = { it.id }) { game ->
                                 val own = remember { FocusRequester() }
                                 val requester = if (game.id == shown.first().id && game.id != restoreId) first else own
-                                GameCard(game, Modifier.animateItemPlacement(tween(260)), requester) { onOpen(game) }
+                                GameCard(game, Modifier, requester) { onOpen(game) }
                                 if (restorePending && game.id == restoreId) LaunchedEffect(Unit) {
                                     runCatching { own.requestFocus() }
                                     restorePending = false
