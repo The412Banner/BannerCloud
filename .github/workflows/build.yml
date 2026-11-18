@@ -1,5 +1,5 @@
-# BannerCloud APK: the Xbox backend (tools/xbox, Bannerlator's recipe) for Android, then the app,
-# signed with the AOSP testkey (v1 + v2 + v3). Output: artifact BannerCloud-<sha8> (the APK + sha256).
+# Even Better Xcloud APK (repo BannerCloud): the Xbox backend (tools/xbox, Bannerlator's recipe) for Android, then the app,
+# signed with the AOSP testkey (v1 + v2 + v3). Output: artifact EvenBetterXcloud-<sha8> (the APK + sha256).
 name: Build APK
 on:
   push:
@@ -137,15 +137,15 @@ jobs:
         test "$(unzip -l "$APK" | grep -cE 'lib/arm64-v8a/(libvulkan_renderer|libxodus_cli|libxodus_service)\.so')" = 3
         SHA=$(echo "${GITHUB_SHA}" | cut -c1-8)
         mkdir -p out
-        cp "$APK" "out/BannerCloud-${SHA}.apk"
-        (cd out && sha256sum "BannerCloud-${SHA}.apk" | tee "BannerCloud-${SHA}.apk.sha256")
+        cp "$APK" "out/EvenBetterXcloud-${SHA}.apk"
+        (cd out && sha256sum "EvenBetterXcloud-${SHA}.apk" | tee "EvenBetterXcloud-${SHA}.apk.sha256")
         echo "SHA8=${SHA}" >> "$GITHUB_ENV"
 
     - name: Upload the APK
       uses: actions/upload-artifact@v4
       continue-on-error: true
       with:
-        name: BannerCloud-${{ env.SHA8 }}
+        name: EvenBetterXcloud-${{ env.SHA8 }}
         path: out/
         retention-days: 30
 
@@ -161,9 +161,9 @@ jobs:
         git init -q -b apk-builds
         git config user.name "The412Banner"
         git config user.email "The412Banner@users.noreply.github.com"
-        printf 'BannerCloud test build\n\ncommit %s (branch %s), run %s\n' "${GITHUB_SHA}" "${GITHUB_REF_NAME}" "${GITHUB_RUN_ID}" > README.md
+        printf 'Even Better Xcloud test build\n\ncommit %s (branch %s), run %s\n' "${GITHUB_SHA}" "${GITHUB_REF_NAME}" "${GITHUB_RUN_ID}" > README.md
         git add -A
-        git commit -q -m "BannerCloud ${SHA8} (run ${GITHUB_RUN_ID})"
+        git commit -q -m "Even Better Xcloud ${SHA8} (run ${GITHUB_RUN_ID})"
         git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/apk-builds
 
     - name: Upload the backend's corresponding source

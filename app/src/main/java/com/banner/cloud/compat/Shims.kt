@@ -21,7 +21,7 @@ object FgDefaults {
 }
 
 /**
- * LSFG needs the user's own Lossless.dll, which BannerCloud does not import, so it always reports
+ * LSFG needs the user's own Lossless.dll, which this app does not import, so it always reports
  * "not available" and the player uses Win-FG or WFG.
  */
 object LsfgNative {

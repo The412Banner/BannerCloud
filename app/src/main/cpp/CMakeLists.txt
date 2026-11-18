@@ -5,7 +5,7 @@ project(BannerCloud)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wno-unused-function -Wimplicit-function-declaration")
 
 # DXVK's DXBC->SPIR-V translator (zlib licence), vendored from Bannerlator under thirdparty/dxbc.
-# The renderer's LSFG engine links it; BannerCloud does not offer LSFG yet, but the renderer is
+# The renderer's LSFG engine links it; the app does not offer LSFG yet, but the renderer is
 # copied whole from Bannerlator so its frame generation code stays identical.
 add_subdirectory(thirdparty/dxbc)
 

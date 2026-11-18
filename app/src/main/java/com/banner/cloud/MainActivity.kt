@@ -95,6 +95,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -222,7 +223,8 @@ private fun SignInScreen(backendReady: Boolean, message: String?, onSignIn: () -
                 Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(44.dp))
             }
             Spacer(Modifier.height(20.dp))
-            Text("BannerCloud", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.onBackground)
+            Text("Even Better Xcloud", style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center)
             Spacer(Modifier.height(6.dp))
             Text("Xbox Cloud Gaming with frame generation", style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -379,7 +381,8 @@ private fun GridPage(
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("BannerCloud", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground)
+                    Text("Even Better Xcloud", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (shownName.isNotEmpty()) Text(shownName, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -640,7 +643,7 @@ private fun SignOutPage(onCancel: () -> Unit, onConfirm: () -> Unit) {
             .background(MaterialTheme.colorScheme.surface).padding(24.dp)) {
             Text("Sign out?", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(8.dp))
-            Text("BannerCloud forgets this Microsoft account on this device.",
+            Text("Even Better Xcloud forgets this Microsoft account on this device.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(22.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {

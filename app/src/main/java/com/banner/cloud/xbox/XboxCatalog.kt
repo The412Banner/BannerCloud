@@ -228,7 +228,7 @@ internal object XboxCatalog {
         try {
             connection.connectTimeout = 15_000; connection.readTimeout = 30_000
             connection.setRequestProperty("Accept", "application/json")
-            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) BannerCloud")
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) EvenBetterXcloud")
             headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
             if (post != null) {
                 connection.requestMethod = "POST"

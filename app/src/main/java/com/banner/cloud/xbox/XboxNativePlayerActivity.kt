@@ -219,7 +219,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
         super.onStart()
         backgroundEnd?.let { root.removeCallbacks(it); log("back before the stream was ended") }
         backgroundEnd = null
-        if (endedInBackground && notice == null) showNotice("The stream ended while BannerCloud was in the background",
+        if (endedInBackground && notice == null) showNotice("The stream ended while Even Better Xcloud was in the background",
             "Cloud sessions are closed after ${BACKGROUND_GRACE_MS / 1000} s away, before Android pauses the app. Restart the " +
                 "stream to play again: the game starts over, unsaved progress is lost.", webPlayer = false)
     }

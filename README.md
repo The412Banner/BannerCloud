@@ -1,6 +1,6 @@
-# BannerCloud
+# Even Better Xcloud
 
-Xbox Cloud Gaming for Android handhelds, with frame generation.
+Xbox Cloud Gaming for Android handhelds, with frame generation. (Repository: BannerCloud; package `com.banner.cloud`.)
 
 - Microsoft sign-in, and your Xbox library: cloud games, owned games, Game Pass.
 - Native player: Google's WebRTC library plus a Vulkan compositor, with Win-FG or WFG 2× frame

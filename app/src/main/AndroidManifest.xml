@@ -16,7 +16,7 @@
         android:allowBackup="false"
         android:extractNativeLibs="true"
         android:icon="@drawable/ic_launcher"
-        android:label="BannerCloud"
+        android:label="Even Better Xcloud"
         android:supportsRtl="true"
         android:usesCleartextTraffic="false"
         android:theme="@style/AppTheme">
