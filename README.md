@@ -18,6 +18,8 @@ which took its Xbox store from [DroidDeck](https://github.com/Droid-Deck/DroidDe
   Bannerlator's patches (`tools/xbox`), built for Android.
 - Web-view player: Greenlight's player, (c) UnknownSKL (Jim Kroon), MIT (`assets/xcloud/player.js`).
 - Cloud game lists: Microsoft's public catalog.gamepass.com lists, ids as used by redphx's Better xCloud (MIT).
+- Region bypass (Settings): the cloud sign-in presents an address in the chosen country, as Better xCloud does
+  (redphx/better-xcloud, MIT; countries and addresses from its `src/enums/bypass-servers.ts`).
 - Native player: Google WebRTC (`io.github.webrtc-sdk:android`, BSD).
 - Frame generation: [win-fg](https://github.com/The412Banner/win-fg) (MIT, with AMD FidelityFX optical flow
   notice) and WFG, the WinNative/Winlator Frame Generator by qwertypower / DEVAR Entertainment LLC (MIT).

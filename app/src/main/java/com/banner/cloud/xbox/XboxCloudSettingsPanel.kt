@@ -129,6 +129,12 @@ private fun PanelContent(
             settings.resolution, pending { it.resolution != settings.resolution }) { onChange(settings.copy(resolution = it)) }
         Choice("Server region", listOf("" to "Automatic") + regions.map { it to it }, settings.region,
             pending { it.region != settings.region }) { onChange(settings.copy(region = it)) }
+        Choice("Region bypass", XboxCloudSettings.BYPASS_NAMES, settings.bypassRegion,
+            pending { it.bypassRegion != settings.bypassRegion }) {
+            // A new country needs a new cloud sign-in (and its own server list).
+            XboxCloudSession.clear()
+            onChange(settings.copy(bypassRegion = it, region = ""))
+        }
         Choice("Game language", XboxCloudSettings.LANGUAGES, settings.language,
             pending { it.language != settings.language }) { onChange(settings.copy(language = it)) }
         Choice("Video codec quality", listOf("default" to "Automatic", "high" to "High", "normal" to "Normal", "low" to "Low"), settings.codec,

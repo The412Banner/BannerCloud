@@ -1,0 +1,45 @@
+diff --git a/crates/xodus-cli/src/commands/cloud_token.rs b/crates/xodus-cli/src/commands/cloud_token.rs
+index 1eb5b15..882da41 100644
+--- a/crates/xodus-cli/src/commands/cloud_token.rs
++++ b/crates/xodus-cli/src/commands/cloud_token.rs
+@@ -81,9 +81,17 @@ fn offering_response(body: &[u8]) -> Result<Value, &'static str> {
+     Ok(value)
+ }
+ 
++/// The address the app asks the cloud login to present (NEXUS_CLOUD_FORWARDED_FOR, an IPv4 address), if any.
++fn forwarded_for() -> Option<std::net::Ipv4Addr> {
++    std::env::var("NEXUS_CLOUD_FORWARDED_FOR").ok()?.trim().parse().ok()
++}
++
+ async fn request_offering(client: &reqwest::Client, endpoint: &str, xsts: &str, offering: &str) -> Result<Value, &'static str> {
+-    let response = client.post(endpoint)
+-        .header("x-gssv-client", "XboxComBrowser").header("Cache-Control", "no-store, must-revalidate, no-cache")
++    let mut request = client.post(endpoint)
++        .header("x-gssv-client", "XboxComBrowser").header("Cache-Control", "no-store, must-revalidate, no-cache");
++    // BannerCloud's region bypass (as Better xCloud, MIT): the login names an address in the chosen country.
++    if let Some(ip) = forwarded_for() { request = request.header("X-Forwarded-For", ip.to_string()); }
++    let response = request
+         .json(&json!({ "token": xsts, "offeringId": offering })).send().await.map_err(|_| "gssv-request")?;
+     let body = super::profile::bounded(response, 256 * 1024).await.map_err(|_| "gssv-response")?;
+     offering_response(&body)
+@@ -115,6 +123,7 @@ async fn login(tokens: &TokenManager) -> Result<Value, String> {
+         async move { request_offering(client, &endpoint, xsts, offering).await }
+     }).await?;
+     // Diagnostic lines are letters and dashes only (the app's allow-list).
++    if forwarded_for().is_some() { eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 region-bypass-on"); }
+     eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 gssv-login-ok-{}", if offering == "xgpuweb" { "gamepass" } else { "free" });
+     let transfer = transfer_token(tokens, &client).await;
+     eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 transfer-token-{}", if transfer.is_ok() { "ok" } else { "missing" });
+@@ -136,6 +145,12 @@ pub async fn run(tokens: &TokenManager) -> ExitCode {
+ mod tests {
+     use super::*;
+     #[test]
++    fn forwarded_for_accepts_only_ipv4() {
++        assert_eq!("143.244.47.65".parse::<std::net::Ipv4Addr>().ok().map(|ip| ip.to_string()).as_deref(), Some("143.244.47.65"));
++        assert!("143.244.47.65\r\nX-Evil: 1".parse::<std::net::Ipv4Addr>().is_err());
++        assert!("example.com".parse::<std::net::Ipv4Addr>().is_err());
++    }
++    #[test]
+     fn only_https_xboxlive_regions_are_kept() {
+         let value = json!({"offeringSettings":{"regions":[
+             {"name":"WestEurope","baseUri":"https://weu.core.gssv-play-prod.xboxlive.com/","isDefault":true},

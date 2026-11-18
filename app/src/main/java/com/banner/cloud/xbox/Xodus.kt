@@ -53,7 +53,7 @@ internal object Xodus {
     }
 
     fun start(app: Context, args: List<String>, service: Boolean = false, runtimeDirectory: File? = null,
-              launchDirectory: File? = null, credentialGeneration: String? = null): Child {
+              launchDirectory: File? = null, credentialGeneration: String? = null, extraEnv: Map<String, String> = emptyMap()): Child {
         val binary = binary(app, service)
         check(binary.isFile) { "The Xbox backend is missing from this build." }
         val credentials = XboxCredentials(app, credentialGeneration)
@@ -77,6 +77,7 @@ internal object Xodus {
                     .firstOrNull { File(it).isDirectory } ?: "/system/etc/security/cacerts")
                 put("XODUS_LOG", "off"); put("RUST_LOG", "off")
                 put("DROIDDECK_XBOX_CREDENTIAL_SOCKET", credentials.name)
+                putAll(extraEnv)
             }
             val digest = sha256(binary)
             val process = builder.start()
@@ -86,8 +87,9 @@ internal object Xodus {
         } catch (e: Exception) { credentials.close(); throw e }
     }
 
-    fun run(app: Context, args: List<String>, timeout: Long = 90, credentialGeneration: String? = null): JSONObject {
-        start(app, args, credentialGeneration = credentialGeneration).use { child ->
+    fun run(app: Context, args: List<String>, timeout: Long = 90, credentialGeneration: String? = null,
+            extraEnv: Map<String, String> = emptyMap()): JSONObject {
+        start(app, args, credentialGeneration = credentialGeneration, extraEnv = extraEnv).use { child ->
             val output = java.io.ByteArrayOutputStream()
             var readError: Throwable? = null
             val reader = Thread({

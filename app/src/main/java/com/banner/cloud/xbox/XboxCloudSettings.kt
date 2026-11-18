@@ -15,6 +15,7 @@ import org.json.JSONObject
 data class XboxCloudSettings(
     val resolution: String = "1080p",      // 720p | 1080p | 1080p_hq
     val region: String = "",                // "" = Microsoft's choice, else a region name
+    val bypassRegion: String = "off",       // off | br | jp | kr | pl | us: cloud sign-in as that country (Better xCloud's bypass)
     val language: String = "",              // "" = the device's language
     val codec: String = "default",          // default | high | normal | low
     val bitrateMbps: Int = 0,               // 0 = no cap
@@ -53,7 +54,7 @@ data class XboxCloudSettings(
     val osName get() = when (resolution) { "720p" -> "android"; "1080p_hq" -> "tizen"; else -> "windows" }
 
     fun toJson(): String = JSONObject()
-        .put("resolution", resolution).put("region", region).put("language", language).put("codec", codec)
+        .put("resolution", resolution).put("region", region).put("bypassRegion", bypassRegion).put("language", language).put("codec", codec)
         .put("bitrateMbps", bitrateMbps).put("preventDrops", preventDrops).put("statsLevel", statsLevel).put("statsLayout", statsLayout).put("volume", volume)
         .put("rumble", rumble).put("maxFps", maxFps).put("brightness", brightness).put("contrast", contrast)
         .put("gamma", gamma.toDouble()).put("saturation", saturation).put("sharpen", sharpen).put("sharpenMode", sharpenMode)
@@ -93,7 +94,8 @@ data class XboxCloudSettings(
             val d = XboxCloudSettings()
             XboxCloudSettings(
                 resolution = json.optString("resolution", d.resolution).takeIf { it in setOf("720p", "1080p", "1080p_hq") } ?: d.resolution,
-                region = json.optString("region", d.region), language = json.optString("language", d.language),
+                region = json.optString("region", d.region),
+                bypassRegion = json.optString("bypassRegion", d.bypassRegion).takeIf { it in BYPASS_IPS.keys } ?: "off", language = json.optString("language", d.language),
                 codec = json.optString("codec", d.codec).takeIf { it in setOf("default", "high", "normal", "low") } ?: d.codec,
                 bitrateMbps = json.optInt("bitrateMbps", d.bitrateMbps).coerceIn(0, 100),
                 preventDrops = json.optBoolean("preventDrops", d.preventDrops), statsLevel = json.optInt("statsLevel", if (json.optBoolean("stats")) 3 else 0).coerceIn(0, 4),
@@ -135,6 +137,15 @@ data class XboxCloudSettings(
             profiles.add("$name:${settings.effectsKeyValues()}")
             prefs.edit().putStringSet(WINE_PROFILES, profiles).apply()
         }
+
+        /**
+         * Region bypass: the cloud sign-in presents an address in this country (X-Forwarded-For), so Microsoft
+         * offers that country's service and servers. Countries and addresses from redphx's Better xCloud
+         * (src/enums/bypass-servers.ts, MIT).
+         */
+        val BYPASS_IPS = mapOf("br" to "169.150.198.66", "jp" to "138.199.21.239", "kr" to "121.125.60.151",
+            "pl" to "45.134.212.66", "us" to "143.244.47.65")
+        val BYPASS_NAMES = listOf("off" to "Off", "br" to "Brazil", "jp" to "Japan", "kr" to "Korea", "pl" to "Poland", "us" to "United States")
 
         val LANGUAGES = listOf("" to "Device language", "en-US" to "English (US)", "en-GB" to "English (UK)", "de-DE" to "Deutsch",
             "es-ES" to "Español (España)", "es-MX" to "Español (México)", "fr-FR" to "Français", "it-IT" to "Italiano",

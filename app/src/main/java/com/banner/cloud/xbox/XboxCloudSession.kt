@@ -29,9 +29,16 @@ internal object XboxCloudSession {
 
     @Volatile private var cached: Session? = null
 
+    @Volatile private var cachedBypass: String = "off"
+
     fun get(app: Context, account: String): Session {
-        cached?.takeIf { it.account == account && it.fresh }?.let { return it }
-        val json = Xodus.run(app, listOf("cloud-token"), timeout = 60)
+        val bypass = XboxCloudSettings.load(app).bypassRegion
+        cached?.takeIf { it.account == account && it.fresh && cachedBypass == bypass }?.let { return it }
+        // Region bypass (Better xCloud's): the backend's cloud login presents an address in that country.
+        val env = XboxCloudSettings.BYPASS_IPS[bypass]?.let { mapOf("NEXUS_CLOUD_FORWARDED_FOR" to it) } ?: emptyMap()
+        if (env.isNotEmpty()) XboxDiag.log(app, "cloud sign-in with region bypass: $bypass")
+        val json = Xodus.run(app, listOf("cloud-token"), timeout = 60, extraEnv = env)
+        cachedBypass = bypass
         require(json.getInt("schema") == 1 && json.getString("account") == account)
         val array = json.getJSONArray("regions")
         val regions = (0 until array.length()).map { array.getJSONObject(it) }
