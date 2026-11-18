@@ -62,8 +62,10 @@ internal fun OutlinedAlertDialog(
     textContentColor: Color = AlertDialogDefaults.textContentColor,
     tonalElevation: Dp = AlertDialogDefaults.TonalElevation,
     properties: DialogProperties = DialogProperties(),
-) = AlertDialog(onDismissRequest, confirmButton, modifier, dismissButton, icon, title, text, shape, containerColor,
-    iconContentColor, titleContentColor, textContentColor, tonalElevation, properties)
+) = AlertDialog(onDismissRequest = onDismissRequest, confirmButton = confirmButton, modifier = modifier,
+    dismissButton = dismissButton, icon = icon, title = title, text = text, shape = shape, containerColor = containerColor,
+    iconContentColor = iconContentColor, titleContentColor = titleContentColor, textContentColor = textContentColor,
+    tonalElevation = tonalElevation, properties = properties)
 
 /** Bannerlator wraps text fields for its on-screen controller keyboard; here the system keyboard is used. */
 @Composable

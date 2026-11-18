@@ -41,8 +41,14 @@ jobs:
             mv /tmp/cmdline-tools/cmdline-tools "$SDK_ROOT/cmdline-tools/latest" 2>/dev/null || true
           fi
           echo "Installing:$MISSING"
+          # pipefail would count yes's SIGPIPE (it is cut off when sdkmanager exits) as a failure
+          set +o pipefail
           yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install $MISSING >/dev/null
+          set -o pipefail
         fi
+        test -f "$SDK_ROOT/ndk/26.1.10909125/source.properties"
+        test -f "$SDK_ROOT/ndk/29.0.14206865/source.properties"
+        test -x "$SDK_ROOT/cmake/3.22.1/bin/cmake"
         echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/26.1.10909125" >> "$GITHUB_ENV"
 
     # --- Xbox backend (Xodus CLI + account service), keyed on tools/xbox ---------------------------
