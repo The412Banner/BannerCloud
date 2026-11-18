@@ -120,9 +120,15 @@ jobs:
     - name: Check the signature and contents
       run: |
         set -euo pipefail
-        APK=app/build/outputs/apk/release/app-release.apk
         BT=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
-        "$BT/apksigner" verify --verbose --print-certs "$APK" | tee verify.txt
+        # Gradle drops v1/v2 for minSdk 28 (v3 is enough there); sign again with all three on purpose.
+        APK=app-release-v123.apk
+        "$BT/apksigner" sign --ks keystore/testkey.p12 --ks-type PKCS12 --ks-pass pass:android \
+          --ks-key-alias testkey --key-pass pass:android \
+          --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+          --out "$APK" app/build/outputs/apk/release/app-release.apk
+        # Verify as an old Android would (API 21), so v1 and v2 are checked too, not only v3.
+        "$BT/apksigner" verify --min-sdk-version 21 --verbose --print-certs "$APK" | tee verify.txt
         grep -q "Verified using v1 scheme (JAR signing): true" verify.txt
         grep -q "Verified using v2 scheme (APK Signature Scheme v2): true" verify.txt
         grep -q "Verified using v3 scheme (APK Signature Scheme v3): true" verify.txt
