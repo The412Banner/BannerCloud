@@ -3,11 +3,12 @@
 name: Build APK
 on:
   push:
-    branches-ignore: ['compile/**']
+    branches-ignore: ['compile/**', 'apk-builds']
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # write: the APK is also pushed to the apk-builds branch (the account's artifact storage can be full)
+  contents: write
 
 jobs:
   build:
@@ -142,10 +143,28 @@ jobs:
 
     - name: Upload the APK
       uses: actions/upload-artifact@v4
+      continue-on-error: true
       with:
         name: BannerCloud-${{ env.SHA8 }}
         path: out/
         retention-days: 30
+
+    # The account's artifact storage quota can be full (other private repos' artifacts), so the APK is
+    # also kept on the apk-builds branch of this private repo: one commit with the newest build only.
+    - name: Put the APK on the apk-builds branch
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        ls -l out
+        cd out
+        git init -q -b apk-builds
+        git config user.name "The412Banner"
+        git config user.email "The412Banner@users.noreply.github.com"
+        printf 'BannerCloud test build\n\ncommit %s (branch %s), run %s\n' "${GITHUB_SHA}" "${GITHUB_REF_NAME}" "${GITHUB_RUN_ID}" > README.md
+        git add -A
+        git commit -q -m "BannerCloud ${SHA8} (run ${GITHUB_RUN_ID})"
+        git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/apk-builds
 
     - name: Upload the backend's corresponding source
       if: steps.xbox-out.outputs.cache-hit != 'true'
