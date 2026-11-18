@@ -1,6 +1,8 @@
-# Quick compile check of the app alone (no Xbox backend), started by hand.
+# Quick compile check of the app alone (no Xbox backend): push to a compile/** branch.
 name: Compile check
 on:
+  push:
+    branches: ['compile/**']
   workflow_dispatch:
 
 permissions:
