@@ -241,7 +241,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
     // ---- session ----
 
     private fun run() {
-        val account = XboxAccountStore.signedInAs(applicationContext) ?: error("Sign in to the Xbox store first.")
+        val account = XboxAccountStore.signedInAs(applicationContext) ?: error("Sign in first.")
         val requested = intent.getStringExtra("product").orEmpty()
         val cached = XboxLibraryCache.read(applicationContext, account, Xodus.market())?.games?.firstOrNull { it.id == requested }
         val product = cached?.cloudId ?: requested

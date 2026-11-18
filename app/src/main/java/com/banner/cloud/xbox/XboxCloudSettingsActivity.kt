@@ -26,6 +26,9 @@ import kotlinx.coroutines.withContext
 
 /** Settings: the player's defaults (the same panel as the in-player menu). */
 class XboxCloudSettingsActivity : ComponentActivity() {
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        com.banner.cloud.ui.mapFaceButtons(event)?.let { super.dispatchKeyEvent(it) } ?: super.dispatchKeyEvent(event)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {

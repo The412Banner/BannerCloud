@@ -76,7 +76,7 @@ class XboxCloudPlayerActivity : ComponentActivity() {
         showNotice("Signing in to Xbox Cloud Gaming…", withButtons = false)
         worker.execute {
             val result = runCatching {
-                val account = XboxAccountStore.signedInAs(applicationContext) ?: error("Sign in to the Xbox store first.")
+                val account = XboxAccountStore.signedInAs(applicationContext) ?: error("Sign in first.")
                 // A PC game whose console edition streams (one card in the library) streams that edition.
                 val cached = XboxLibraryCache.read(applicationContext, account, Xodus.market())?.games?.firstOrNull { it.id == requested }
                 val product = cached?.cloudId ?: requested
