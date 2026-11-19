@@ -76,20 +76,40 @@ internal object XboxCloudSession {
      * product id (POST /v2/titles with alternateIds, as Better xCloud's getTitleInfo, MIT). The list does not
      * include every game the account can stream (games it owns outside Game Pass), the lookup does.
      */
-    fun titleFor(session: Session, productId: String): String? {
+    fun titleFor(session: Session, productId: String, name: String = "", log: (String) -> Unit = {}): String? {
         val product = productId.uppercase()
-        titles(session)[product]?.let { return it }
+        val list = titles(session)
+        list[product]?.let { return it }
         val cache = looked?.takeIf { it.first == session.account }?.second ?: HashMap<String, String>().also { looked = session.account to it }
         cache[product]?.let { return it }
+        // 1. Microsoft's lookup by product id. Its answer may name another product (the edition the service
+        //    streams); its title id is still the one to start.
         val body = JSONObject().put("alternateIds", JSONArray().put(product)).put("alternateIdType", "productId").toString()
-        val reply = request(session, "POST", "/v2/titles", body)
-        check(reply.status == 200) { "Xbox Cloud Gaming answered ${reply.status}" }
-        val row = JSONObject(reply.body).optJSONArray("results")?.optJSONObject(0) ?: return null
-        val title = row.optString("titleId")
-        val rowProduct = row.optJSONObject("details")?.optString("productId")?.uppercase().orEmpty()
-        if (title.isBlank() || title.length > 64 || (rowProduct.isNotEmpty() && rowProduct != product)) return null
-        cache[product] = title
-        return title
+        val reply = runCatching { request(session, "POST", "/v2/titles", body) }.getOrNull()
+        val rows = reply?.takeIf { it.status == 200 }?.let { runCatching { JSONObject(it.body).optJSONArray("results") }.getOrNull() }
+        val row = rows?.optJSONObject(0)
+        val title = row?.optString("titleId").orEmpty()
+        val rowProduct = row?.optJSONObject("details")?.optString("productId")?.uppercase().orEmpty()
+        log("title lookup $product: http ${reply?.status ?: -1}, results ${rows?.length() ?: -1}, title ${title.ifEmpty { "-" }}, product ${rowProduct.ifEmpty { "-" }}")
+        if (title.isNotBlank() && title.length <= 64) { cache[product] = title; return title }
+        // 2. The service's title ids are the game's name in capitals ("FORTNITE", "FORZAHORIZON5"): match the
+        //    card's name without its edition words against the account's list.
+        val key = nameKey(name)
+        if (key.length >= 4) {
+            val byName = list.values.filter { it.uppercase() == key }.distinct()
+            log("title by name $key: ${byName.joinToString().ifEmpty { "none" }}; similar ${list.values.filter { key.take(6) in it.uppercase() }.distinct().take(8).joinToString()}")
+            if (byName.size == 1) { cache[product] = byName[0]; return byName[0] }
+        }
+        return null
+    }
+
+    private val EDITION_WORDS = Regex("(STANDARD|DELUXE|PREMIUM|ULTIMATE|GOLD|COMPLETE|DEFINITIVE|ENHANCED|ANNIVERSARY|GAMEOFTHEYEAR|GOTY)?EDITION$|GAMEPREVIEW$|FORWINDOWS(10)?$|XBOXSERIESXS$|XBOXONE$|PC$")
+
+    /** "Forza Horizon 6 Standard Edition" -> "FORZAHORIZON6". */
+    internal fun nameKey(name: String): String {
+        var key = name.uppercase().replace(Regex("[^A-Z0-9]"), "")
+        repeat(3) { key = key.replace(EDITION_WORDS, "") }
+        return key
     }
 
     class Reply(val status: Int, val body: String)

@@ -248,8 +248,9 @@ class XboxNativePlayerActivity : ComponentActivity() {
         val active = XboxCloudSession.get(applicationContext, account).forStream(settings.region, settings.osName)
         regionNames = active.regionList.map { it.name }
         serverName = active.regionList.firstOrNull { it.baseUri == active.baseUri }?.name
-        val title = XboxCloudSession.titleFor(active, product)
-            ?: (if (requested.uppercase() != product.uppercase()) XboxCloudSession.titleFor(active, requested) else null) ?: run {
+        val name = cached?.title ?: intent.getStringExtra("title").orEmpty()
+        val title = XboxCloudSession.titleFor(active, product, name) { log(it) }
+            ?: (if (requested.uppercase() != product.uppercase()) XboxCloudSession.titleFor(active, requested, name) { log(it) } else null) ?: run {
             log("no cloud title for $product (requested $requested, list ${XboxCloudSession.titles(active).size})")
             error("This game can't be streamed with this account here.")
         }
