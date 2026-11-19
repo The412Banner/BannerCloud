@@ -26,9 +26,10 @@ import kotlin.math.min
 import kotlin.math.sqrt
 
 /**
- * The on-screen controller for the native player (no Microsoft touch layouts: a standard pad). Multi-touch; each
- * finger keeps the control it landed on. Sticks are fixed rings with a knob; buttons light while held. The state
- * goes to [onState] (null when no finger is down). When [visible] is false, a touch only calls [onWake].
+ * The on-screen controller for the native player (no Microsoft touch layouts: a standard pad). Multi-touch. A finger
+ * that lands on a stick keeps that stick; any other finger presses whatever buttons are under it right now, so it can
+ * slide from button to button, and a thumb resting between two neighbours presses both. Buttons light while held.
+ * The state goes to [onState] (null when no finger is down). When [visible] is false, a touch only calls [onWake].
  */
 @Composable
 internal fun TouchPad(visible: Boolean, opacity: Float, onState: (XboxNativePad.State?) -> Unit, onWake: () -> Unit) {
@@ -46,32 +47,41 @@ internal fun TouchPad(visible: Boolean, opacity: Float, onState: (XboxNativePad.
             }
         }
         awaitPointerEventScope {
-            val owners = HashMap<PointerId, Control>()
+            // Fingers that grabbed a stick keep it; every other finger down is a button finger.
+            val sticks = HashMap<PointerId, Control>()
+            val down = HashMap<PointerId, Offset>()
             while (true) {
                 val event = awaitPointerEvent()
                 val layout = layout(Size(size.width.toFloat(), size.height.toFloat()), density)
                 for (c in event.changes) {
-                    if (c.pressed && !c.previousPressed) layout.firstOrNull { it.hit(c.position) }?.let { owners[c.id] = it }
-                    if (!c.pressed) owners.remove(c.id)
-                    if (owners.containsKey(c.id)) c.consume()
+                    if (c.pressed) down[c.id] = c.position else { down.remove(c.id); sticks.remove(c.id) }
+                    if (c.pressed && !c.previousPressed)
+                        layout.firstOrNull { it.isStick && it.hit(c.position) }?.let { sticks[c.id] = it }
+                    if (c.pressed) c.consume()
                 }
                 var buttons = 0; var lt = 0f; var rt = 0f
                 var left = Offset.Zero; var right = Offset.Zero
                 val held = HashSet<String>()
-                for (c in event.changes) {
-                    val control = owners[c.id] ?: continue
-                    held += control.name
-                    when (control.kind) {
-                        Kind.LEFT_STICK -> left = control.stick(c.position)
-                        Kind.RIGHT_STICK -> right = control.stick(c.position)
-                        Kind.LT -> lt = 1f
-                        Kind.RT -> rt = 1f
-                        Kind.BUTTON -> buttons = buttons or control.bit
+                for ((id, position) in down) {
+                    val stick = sticks[id]
+                    if (stick != null) {
+                        held += stick.name
+                        if (stick.kind == Kind.LEFT_STICK) left = stick.stick(position) else right = stick.stick(position)
+                        continue
+                    }
+                    for (control in layout) {
+                        if (control.isStick || !control.under(position)) continue
+                        held += control.name
+                        when (control.kind) {
+                            Kind.LT -> lt = 1f
+                            Kind.RT -> rt = 1f
+                            else -> buttons = buttons or control.bit
+                        }
                     }
                 }
                 leftKnob = left; rightKnob = right
                 pressed.keys.retainAll(held); held.forEach { pressed[it] = true }
-                onState(if (owners.isEmpty()) null else XboxNativePad.State(buttons, left.x, left.y, right.x, right.y, lt, rt))
+                onState(if (down.isEmpty()) null else XboxNativePad.State(buttons, left.x, left.y, right.x, right.y, lt, rt))
             }
         }
     }) {
@@ -87,6 +97,13 @@ internal fun TouchPad(visible: Boolean, opacity: Float, onState: (XboxNativePad.
 private enum class Kind { BUTTON, LEFT_STICK, RIGHT_STICK, LT, RT }
 
 private class Control(val name: String, val label: String, val kind: Kind, val bit: Int, val center: Offset, val radius: Float) {
+    val isStick get() = kind == Kind.LEFT_STICK || kind == Kind.RIGHT_STICK
+    /** A button finger presses this button when it is within 1.5 radii: the gap between neighbours presses both. */
+    fun under(p: Offset): Boolean {
+        val d = p - center
+        val reach = radius * 1.5f
+        return d.x * d.x + d.y * d.y <= reach * reach
+    }
     fun hit(p: Offset): Boolean {
         val d = p - center
         val reach = if (kind == Kind.LEFT_STICK || kind == Kind.RIGHT_STICK) radius * 1.6f else radius * 1.25f
@@ -106,14 +123,14 @@ private fun layout(size: Size, density: Float): List<Control> {
     // One design unit = 1/411 of the short side (the layout is drawn for a 411-unit-tall landscape screen).
     val s = min(size.width, size.height) / 411f
     val w = size.width; val h = size.height
-    val button = 26f * s
+    val button = 28f * s
     return listOf(
         Control("ls", "", Kind.LEFT_STICK, 0, Offset(118f * s, h - 120f * s), 58f * s),
         Control("rs", "", Kind.RIGHT_STICK, 0, Offset(w - 250f * s, h - 78f * s), 48f * s),
         Control("a", "A", Kind.BUTTON, 16, Offset(w - 100f * s, h - 78f * s), button),
-        Control("b", "B", Kind.BUTTON, 32, Offset(w - 46f * s, h - 132f * s), button),
-        Control("x", "X", Kind.BUTTON, 64, Offset(w - 154f * s, h - 132f * s), button),
-        Control("y", "Y", Kind.BUTTON, 128, Offset(w - 100f * s, h - 186f * s), button),
+        Control("b", "B", Kind.BUTTON, 32, Offset(w - 50f * s, h - 128f * s), button),
+        Control("x", "X", Kind.BUTTON, 64, Offset(w - 150f * s, h - 128f * s), button),
+        Control("y", "Y", Kind.BUTTON, 128, Offset(w - 100f * s, h - 178f * s), button),
         Control("up", "▲", Kind.BUTTON, 256, Offset(250f * s, h - 112f * s), 20f * s),
         Control("down", "▼", Kind.BUTTON, 512, Offset(250f * s, h - 40f * s), 20f * s),
         Control("left", "◀", Kind.BUTTON, 1024, Offset(214f * s, h - 76f * s), 20f * s),
