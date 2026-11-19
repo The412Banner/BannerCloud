@@ -69,6 +69,28 @@ internal object XboxCloudSession {
         return map
     }
 
+    /**
+     * Microsoft's estimated wait for a free cloud console for [titleId], in seconds (GET /v1/waittime/{titleId}, as
+     * Better xCloud's getWaitTime, MIT); null when unknown.
+     */
+    fun waitSeconds(session: Session, titleId: String): Int? = runCatching {
+        val reply = request(session, "GET", "/v1/waittime/$titleId")
+        if (reply.status != 200) return@runCatching null
+        val json = JSONObject(reply.body)
+        val total = json.optInt("estimatedTotalWaitTimeInSeconds", -1)
+        if (total >= 0) total else {
+            val parts = listOf("estimatedProvisioningTimeInSeconds", "estimatedAllocationTimeInSeconds").map { json.optInt(it, -1) }
+            if (parts.all { it < 0 }) null else parts.filter { it >= 0 }.sum()
+        }
+    }.getOrNull()
+
+    /** "about 2 min" / "under a minute" for [seconds]. */
+    fun waitText(seconds: Int): String = when {
+        seconds < 60 -> "under a minute"
+        seconds < 3600 -> "about ${(seconds + 30) / 60} min"
+        else -> "about ${seconds / 3600} h ${(seconds % 3600) / 60} min"
+    }
+
     @Volatile private var looked: Pair<String, MutableMap<String, String>>? = null
 
     /**

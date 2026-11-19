@@ -141,6 +141,8 @@ class XboxNativePlayerActivity : ComponentActivity() {
         val egl = EglBase.create().also { eglBase = it }
         val nativeVideo = XboxNativeVideo(this, egl) { log(it) }.also { video = it }
         nativeVideo.onFirstFrame = { hideArt() }
+        nativeVideo.setFit(settings.videoFit)
+        nativeVideo.setEffects(settings)
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {}
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -281,6 +283,8 @@ class XboxNativePlayerActivity : ComponentActivity() {
         val signals = XboxCloudSignalling(active, title, settings).also { signalling = it }
         log("$product -> $title, region ${java.net.URI(active.baseUri).host}, frame gen ${settings.frameGen}")
 
+        val waitEstimate = XboxCloudSession.waitSeconds(active, title)
+        if (waitEstimate != null) log("estimated wait ${waitEstimate}s")
         show("Starting the game on Xbox Cloud Gaming…")
         expect("start", signals.start())
         var connected = false
@@ -291,7 +295,8 @@ class XboxNativePlayerActivity : ComponentActivity() {
                 "Provisioned" -> break
                 "Failed" -> error("provision: ${state.optJSONObject("errorDetails")}")
                 "ReadyToConnect" -> if (!connected) { connected = true; show("Signing in to the cloud console…"); expect("connect", signals.connect()) }
-                "WaitingForResources" -> show("In the queue for a cloud console… ${waited / 1000} s")
+                "WaitingForResources" -> show("In the queue for a cloud console… ${waited / 1000} s" +
+                    (waitEstimate?.let { " (estimated ${XboxCloudSession.waitText(it)})" } ?: ""))
                 else -> show("Getting a cloud console ready… ${waited / 1000} s")
             }
             Thread.sleep(1000); waited += 1000
@@ -585,13 +590,24 @@ class XboxNativePlayerActivity : ComponentActivity() {
             @Suppress("DEPRECATION") val refreshMs = 1000.0 / windowManager.defaultDisplay.refreshRate
             val total = (if (rttMs >= 0) rttMs / 2 else 0.0) + bufferMs + decodeMs + fgWaitMs + fgGpuMs + refreshMs
             val shownFps = if (zeroCopy) (zeroCopyFrames - lastZeroCopyFrames).toInt().also { lastZeroCopyFrames = zeroCopyFrames } else fps
+            // Colour by quality (statsColors): green good, amber fair, red poor.
+            val good = Color.rgb(110, 220, 120); val fair = Color.rgb(240, 200, 80); val poor = Color.rgb(255, 110, 100)
+            fun grade(value: Double, okBelow: Double, fairBelow: Double) = if (value < okBelow) good else if (value < fairBelow) fair else poor
+            val colors = HashMap<Int, Int>()
             val items = buildList {
+                colors[this.size] = if (shownFps >= 55) good else if (shownFps >= 28) fair else poor
                 add("$shownFps fps" + if (zeroCopy) " zero-copy" else "")
                 if (fgOn) add("${settings.frameGen} ${fg!![2].toInt()} → ${fg[3].toInt()}")
-                if (level >= 2) { add(size); add(if (rttMs >= 0) "ping ${rttMs.toInt()} ms" else "ping –") }
+                if (level >= 2) {
+                    add(size)
+                    if (rttMs >= 0) colors[this.size] = grade(rttMs, 40.0, 90.0)
+                    add(if (rttMs >= 0) "ping ${rttMs.toInt()} ms" else "ping –")
+                }
                 if (level >= 3) {
                     add("${"%.1f".format(mbps)} Mb/s"); add("buffer ${"%.1f".format(bufferMs)} ms")
-                    add("decode ${"%.1f".format(decodeMs)} ms"); add("loss ${"%.1f".format(loss)}%")
+                    add("decode ${"%.1f".format(decodeMs)} ms")
+                    colors[this.size] = grade(loss, 0.5, 2.0)
+                    add("loss ${"%.1f".format(loss)}%")
                 }
                 if (level >= 4) {
                     if (fgOn) add("frame gen +${"%.1f".format(fgWaitMs + fgGpuMs)} ms (gpu ${"%.1f".format(fgGpuMs)})")
@@ -600,7 +616,15 @@ class XboxNativePlayerActivity : ComponentActivity() {
                     serverName?.let { add(it) }
                 }
             }
-            val text = items.joinToString(if (settings.statsLayout == "vertical") "\n" else "  ·  ")
+            val separator = if (settings.statsLayout == "vertical") "\n" else "  ·  "
+            val text = android.text.SpannableStringBuilder()
+            items.forEachIndexed { index, item ->
+                if (index > 0) text.append(separator)
+                val start = text.length
+                text.append(item)
+                val color = colors[index]
+                if (settings.statsColors && color != null) text.setSpan(android.text.style.ForegroundColorSpan(color), start, text.length, 0)
+            }
             runOnUiThread { overlay.text = text }
         }
     }
@@ -618,13 +642,13 @@ class XboxNativePlayerActivity : ComponentActivity() {
         view.setContent {
             com.banner.cloud.ui.CloudTheme {
                 var current by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(settings) }
-                val entries = androidx.compose.runtime.remember { List(7) { androidx.compose.ui.focus.FocusRequester() } }
+                val entries = androidx.compose.runtime.remember { List(9) { androidx.compose.ui.focus.FocusRequester() } }
                 val choices = androidx.compose.runtime.remember { List(8) { androidx.compose.ui.focus.FocusRequester() } }
                 androidx.compose.runtime.LaunchedEffect(menuPage) {
                     // Wait a frame so the entries are attached before one of them takes the selection.
                     androidx.compose.runtime.withFrameNanos { }
                     runCatching {
-                        if (menuPage.isEmpty()) entries[lastMainEntry.coerceIn(0, 6)].requestFocus()
+                        if (menuPage.isEmpty()) entries[lastMainEntry.coerceIn(0, 8)].requestFocus()
                         else if (menuPage == "framegen") choices[FG_MODES.indexOf(current.frameGen).coerceIn(0, if (lsfg) 7 else 4)].requestFocus()
                     }
                 }
@@ -655,7 +679,11 @@ class XboxNativePlayerActivity : ComponentActivity() {
                             XboxMenuEntry("Performance overlay and rumble", if (current.statsLevel == 0) "Overlay off"
                                 else "Overlay: " + listOf("", "FPS only", "Basic", "Detailed", "Full")[current.statsLevel] + ", " + current.statsLayout,
                                 entries[5], { lastMainEntry = 5 }) { menuPage = "overlay-native" }
-                            XboxMenuEntry("Leave", "End the stream", entries[6], { lastMainEntry = 6 }) { finish() }
+                            XboxMenuEntry("Picture", "Sharpen, colour, effects and screen fit", entries[6], { lastMainEntry = 6 }) { menuPage = "picture" }
+                            XboxMenuEntry("Take a screenshot", "Saved to Pictures / Even Better Xcloud", entries[7], { lastMainEntry = 7 }) {
+                                closeMenu(); takeScreenshot()
+                            }
+                            XboxMenuEntry("Leave", "End the stream", entries[8], { lastMainEntry = 8 }) { finish() }
                             androidx.compose.material3.Text("Guide twice opens this menu; Back or Guide closes it.",
                                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant,
                                 modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
@@ -699,6 +727,8 @@ class XboxNativePlayerActivity : ComponentActivity() {
                                 settings = changed
                                 XboxCloudSettings.save(this@XboxNativePlayerActivity, changed)
                                 if (rateChanged) { applyDisplayRate(changed.fpsTarget); video?.setFpsTarget(changed.fpsTarget) }
+                                video?.setFit(changed.videoFit)
+                                video?.setEffects(changed)
                                 applyOverlay()
                             }
                         }
@@ -715,7 +745,53 @@ class XboxNativePlayerActivity : ComponentActivity() {
     private fun applyOverlay() {
         overlayOn = settings.statsLevel > 0
         overlay.visibility = if (overlayOn) android.view.View.VISIBLE else android.view.View.GONE
-        overlay.textSize = 12f
+        overlay.textSize = settings.statsSize.toFloat()
+        overlay.setBackgroundColor(Color.argb(settings.statsOpacity * 255 / 100, 0, 0, 0))
+        val gravity = when (settings.statsPosition) {
+            "tl" -> Gravity.TOP or Gravity.START
+            "bl" -> Gravity.BOTTOM or Gravity.START
+            "br" -> Gravity.BOTTOM or Gravity.END
+            else -> Gravity.TOP or Gravity.END
+        }
+        (overlay.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
+            if (lp.gravity != gravity) { lp.gravity = gravity; lp.topMargin = 16; lp.bottomMargin = 16; lp.leftMargin = 16; lp.rightMargin = 16; overlay.layoutParams = lp }
+        }
+    }
+
+    /**
+     * The stream picture (not the menu or overlay: PixelCopy reads the video surface only) as a PNG in
+     * Pictures/Even Better Xcloud.
+     */
+    private fun takeScreenshot() {
+        val view = surfaceView
+        if (view.width <= 0 || view.height <= 0 || screen == null) { show("No picture to save yet"); return }
+        root.postDelayed({
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            runCatching {
+                android.view.PixelCopy.request(view, bitmap, { result ->
+                    if (result != android.view.PixelCopy.SUCCESS) { show("Screenshot failed"); root.postDelayed({ show("") }, 2000); return@request }
+                    worker.execute {
+                        val saved = runCatching { saveScreenshot(bitmap) }.getOrElse { log("screenshot: ${it.javaClass.simpleName}"); false }
+                        show(if (saved) "Screenshot saved" else "Screenshot failed")
+                        root.postDelayed({ show("") }, 2000)
+                    }
+                }, android.os.Handler(mainLooper))
+            }.onFailure { show("Screenshot failed"); log("screenshot: ${it.javaClass.simpleName}") }
+        }, 250)
+    }
+
+    private fun saveScreenshot(bitmap: android.graphics.Bitmap): Boolean {
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+        val name = (intent.getStringExtra("title").orEmpty().replace(Regex("[^A-Za-z0-9]+"), "_").trim('_').take(40).ifEmpty { "stream" }) + "_$stamp.png"
+        val values = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, name)
+            put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+            if (Build.VERSION.SDK_INT >= 29) put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Even Better Xcloud")
+        }
+        val uri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return false
+        contentResolver.openOutputStream(uri)?.use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) } ?: return false
+        log("screenshot saved ${bitmap.width}x${bitmap.height}")
+        return true
     }
 
     /** Stream-start settings need a new cloud session: end this one, then open the player again. */

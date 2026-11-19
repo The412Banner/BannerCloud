@@ -164,7 +164,8 @@ private fun PanelContent(
             settings.zeroCopy) { onChange(settings.copy(zeroCopy = it)) }
     }
 
-    if (section == null || section == "picture") Section("Picture", "Shader effects on the stream; the profiles are shared with the Wine games' screen effects.") {
+    if (section == null || section == "picture") Section("Picture", "Effects on the stream (both engines; not while zero-copy is on).") {
+        Choice("Screen fit", listOf("fit" to "Fit", "stretch" to "Stretch", "fill" to "Fill (crop)"), settings.videoFit) { onChange(settings.copy(videoFit = it)) }
         Choice("Profile", listOf("" to "None") + profiles.keys.map { it to it }, settings.profile) { name ->
             onChange(if (name.isEmpty()) settings.copy(profile = "") else settings.withEffects(profiles.getValue(name), name))
         }
@@ -200,7 +201,15 @@ private fun PanelContent(
             onChange(settings.copy(statsLevel = it))
         }
         Choice("Overlay layout", listOf("horizontal" to "Horizontal", "vertical" to "Vertical"), settings.statsLayout) { onChange(settings.copy(statsLayout = it)) }
-        Text("Top right. Basic: fps, ping, resolution. Detailed: + bitrate, decode time, packet loss. Full: + codec, jitter, " +
+        Choice("Overlay position", listOf("tl" to "Top left", "tr" to "Top right", "bl" to "Bottom left", "br" to "Bottom right"), settings.statsPosition) {
+            onChange(settings.copy(statsPosition = it))
+        }
+        Step("Overlay text size", "${settings.statsSize}", { onChange(settings.copy(statsSize = (settings.statsSize - 1).coerceAtLeast(9))) },
+            { onChange(settings.copy(statsSize = (settings.statsSize + 1).coerceAtMost(20))) })
+        Step("Overlay background", "${settings.statsOpacity}%", { onChange(settings.copy(statsOpacity = (settings.statsOpacity - 10).coerceAtLeast(0))) },
+            { onChange(settings.copy(statsOpacity = (settings.statsOpacity + 10).coerceAtMost(90))) })
+        Toggle("Colour by quality", "Green, amber or red for fps, ping and packet loss.", settings.statsColors) { onChange(settings.copy(statsColors = it)) }
+        Text("Basic: fps, ping, resolution. Detailed: + bitrate, decode time, packet loss. Full: + codec, jitter, " +
             "dropped frames, server.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (section != "overlay-native") Step("Volume", "${settings.volume}%", { onChange(settings.copy(volume = (settings.volume - 25).coerceAtLeast(100))) },
             { onChange(settings.copy(volume = (settings.volume + 25).coerceAtMost(300))) })

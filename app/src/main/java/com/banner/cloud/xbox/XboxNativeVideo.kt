@@ -50,6 +50,8 @@ internal class XboxNativeVideo(private val context: Context, eglBase: EglBase, p
     private external fun nativeFrameGen(handle: Long, engine: Int, multiplier: Int, flowScale: Float, refreshHz: Float,
                                         model: Int, preset: Int, lsfgCache: String?)
     private external fun nativeSetSwapRB(handle: Long, swap: Boolean)
+    private external fun nativeEffects(handle: Long, brightness: Float, contrast: Float, gamma: Float, saturation: Float,
+                                       cas: Int, deband: Int, fxaa: Boolean, toon: Boolean, crt: Boolean, ntsc: Boolean)
     private external fun nativeSetPresentMode(handle: Long, mode: Int)
     private external fun nativeFrameGenProblem(handle: Long): Int
     private external fun nativeStats(handle: Long): FloatArray
@@ -75,6 +77,10 @@ internal class XboxNativeVideo(private val context: Context, eglBase: EglBase, p
     /** The frame-rate target (0 = the screen's rate): the frame-gen pacer's cap, or a limit on stream frames without it. */
     @Volatile private var fpsTarget = 0
     private var lastSubmitNs = 0L
+    /** fit (letterbox), stretch or fill (crop). Live. */
+    @Volatile private var fit = "fit"
+    /** The picture effects from the player settings (null = none yet). Live. */
+    @Volatile private var effects: XboxCloudSettings? = null
     @Volatile var frames = 0L
         private set
 
@@ -85,6 +91,24 @@ internal class XboxNativeVideo(private val context: Context, eglBase: EglBase, p
         surface = target; surfaceW = width; surfaceH = height
         if (changed) destroyRenderer()
         if (handle != 0L) { nativeResize(handle, width, height); applyTransform() }
+    }
+
+    fun setFit(mode: String) {
+        fit = mode
+        synchronized(lock) { applyTransform() }
+    }
+
+    /** Colour grade, sharpening, deband and the FXAA / Toon / CRT / NTSC passes from [settings]. Live. */
+    fun setEffects(settings: XboxCloudSettings) {
+        effects = settings
+        synchronized(lock) { applyEffects() }
+    }
+
+    private fun applyEffects() {
+        val s = effects ?: return
+        if (handle == 0L) return
+        nativeEffects(handle, s.brightness.toFloat(), s.contrast.toFloat(), s.gamma, s.saturation.toFloat(),
+            s.sharpen * 10, s.deband * 25, s.fxaa, s.toon, s.crt, s.ntsc)
     }
 
     /** Frame-rate target, 0 = the screen's rate. Live. */
@@ -148,14 +172,20 @@ internal class XboxNativeVideo(private val context: Context, eglBase: EglBase, p
         nativeResize(handle, surfaceW, surfaceH)
         applyTransform()
         applyFrameGen()
+        applyEffects()
         log("native renderer ${w}x$h on ${surfaceW}x$surfaceH")
     }
 
-    /** Fit the video into the surface, letterboxed (the compositor normalises by the video size). */
+    /** Place the video in the surface: letterboxed, stretched or filled (the compositor normalises by the video size). */
     private fun applyTransform() {
         if (handle == 0L || videoW == 0 || surfaceW == 0) return
-        val scale = minOf(surfaceW.toFloat() / videoW, surfaceH.toFloat() / videoH)
-        val viewW = videoW * scale; val viewH = videoH * scale
+        val sx = surfaceW.toFloat() / videoW; val sy = surfaceH.toFloat() / videoH
+        val (scaleX, scaleY) = when (fit) {
+            "stretch" -> sx to sy
+            "fill" -> maxOf(sx, sy).let { it to it }
+            else -> minOf(sx, sy).let { it to it }
+        }
+        val viewW = videoW * scaleX; val viewH = videoH * scaleY
         val offX = (surfaceW - viewW) / 2f; val offY = (surfaceH - viewH) / 2f
         nativeSetTransform(handle, videoW * offX / surfaceW, videoH * offY / surfaceH, viewW / surfaceW, viewH / surfaceH)
     }

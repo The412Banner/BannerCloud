@@ -61,6 +61,23 @@ Java_com_banner_cloud_xbox_XboxNativeVideo_nativeFrameGen(JNIEnv* env, jobject, 
     r->setFrameGenArmed(multiplier >= 2, multiplier);
 }
 
+// Picture effects on the stream (the same compositor passes Bannerlator uses for games): colour grade in
+// screen-effect units (brightness/contrast -100..100, gamma 0.5..3, saturation 0..200 %), CAS 0..100,
+// deband 0..200, and the binary FXAA / Toon / CRT / NTSC passes.
+extern "C" JNIEXPORT void JNICALL
+Java_com_banner_cloud_xbox_XboxNativeVideo_nativeEffects(JNIEnv*, jobject, jlong h, jfloat brightness, jfloat contrast,
+        jfloat gamma, jfloat saturation, jint cas, jint deband, jboolean fxaa, jboolean toon, jboolean crt, jboolean ntsc) {
+    auto* r = ctx(h);
+    if (!r) return;
+    r->setColorGrade(brightness, contrast, gamma, saturation);
+    r->setCas(cas > 0, cas);
+    r->setDeband(deband > 0, deband);
+    r->setFxaa(fxaa == JNI_TRUE);
+    r->setToon(toon == JNI_TRUE);
+    r->setCrt(crt == JNI_TRUE);
+    r->setNtsc(ntsc == JNI_TRUE);
+}
+
 // ImageReader frames are RGBA; X-server windows arrive BGRA, which is the compositor's default.
 extern "C" JNIEXPORT void JNICALL
 Java_com_banner_cloud_xbox_XboxNativeVideo_nativeSetSwapRB(JNIEnv*, jobject, jlong h, jboolean swap) {

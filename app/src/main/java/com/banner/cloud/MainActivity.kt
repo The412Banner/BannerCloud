@@ -569,6 +569,8 @@ private fun Badge(text: String, color: Color) {
 private fun DetailPage(game: XboxGame, onBack: () -> Unit, onPlay: () -> Unit, onWebPlayer: () -> Unit) {
     val ctx = LocalContext.current
     val primary = remember { FocusRequester() }
+    var wait by remember(game.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(game.id) { if (game.cloud) wait = withContext(Dispatchers.IO) { cloudWait(ctx.applicationContext, game) } }
     LaunchedEffect(game.id) { delay(60); runCatching { primary.requestFocus() } }
     BoxWithConstraints(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val wide = maxWidth > maxHeight && maxWidth > 600.dp
@@ -592,6 +594,10 @@ private fun DetailPage(game: XboxGame, onBack: () -> Unit, onPlay: () -> Unit, o
             }
             Spacer(Modifier.height(10.dp))
             Text(game.title, style = MaterialTheme.typography.headlineSmall, color = Color.White)
+            AnimatedVisibility(wait != null, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                Text("Cloud wait: ${wait.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = Accent,
+                    modifier = Modifier.padding(top = 4.dp))
+            }
             if (game.publisher.isNotBlank()) Text(game.publisher, style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
             Spacer(Modifier.height(22.dp))
@@ -655,6 +661,14 @@ private fun SignOutPage(onCancel: () -> Unit, onConfirm: () -> Unit) {
 }
 
 // ---------------------------------------------------------------------------------------------------
+
+/** Microsoft's estimated wait for a cloud console for [game] ("about 2 min"), or null when unknown. */
+private fun cloudWait(app: Context, game: XboxGame): String? = runCatching {
+    val account = XboxAccountStore.signedInAs(app) ?: return@runCatching null
+    val session = XboxCloudSession.get(app, account)
+    val title = XboxCloudSession.titleFor(session, game.cloudId ?: game.id, game.title) ?: return@runCatching null
+    XboxCloudSession.waitSeconds(session, title)?.let { XboxCloudSession.waitText(it) }
+}.getOrNull()
 
 /** Bannerlator's library sync: the account's entitlements (Xodus), Microsoft Store details, the public cloud lists. */
 private fun loadLibrary(app: Context, account: String, market: String): Result<List<XboxGame>> = runCatching {

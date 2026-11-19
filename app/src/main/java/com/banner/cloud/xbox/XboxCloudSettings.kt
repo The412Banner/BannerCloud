@@ -22,6 +22,11 @@ data class XboxCloudSettings(
     val preventDrops: Boolean = false,
     val statsLevel: Int = 0,                // performance overlay: 0 off, 1 fps, 2 basic, 3 detailed, 4 full
     val statsLayout: String = "horizontal", // horizontal | vertical
+    val statsPosition: String = "tr",       // overlay corner: tl | tr | bl | br
+    val statsSize: Int = 12,                // overlay text, 9..20 sp
+    val statsOpacity: Int = 55,             // overlay background, 0..90 %
+    val statsColors: Boolean = true,        // colour fps, ping and loss by how good they are
+    val videoFit: String = "fit",           // native engine: fit (letterbox) | stretch | fill (crop)
     val volume: Int = 100,                  // 100..300 %
     val rumble: Int = 100,                  // 0..100 %
     val maxFps: Int = 0,                    // 0 = every frame
@@ -55,7 +60,8 @@ data class XboxCloudSettings(
 
     fun toJson(): String = JSONObject()
         .put("resolution", resolution).put("region", region).put("bypassRegion", bypassRegion).put("language", language).put("codec", codec)
-        .put("bitrateMbps", bitrateMbps).put("preventDrops", preventDrops).put("statsLevel", statsLevel).put("statsLayout", statsLayout).put("volume", volume)
+        .put("bitrateMbps", bitrateMbps).put("preventDrops", preventDrops).put("statsLevel", statsLevel).put("statsLayout", statsLayout).put("statsPosition", statsPosition).put("statsSize", statsSize)
+        .put("statsOpacity", statsOpacity).put("statsColors", statsColors).put("videoFit", videoFit).put("volume", volume)
         .put("rumble", rumble).put("maxFps", maxFps).put("brightness", brightness).put("contrast", contrast)
         .put("gamma", gamma.toDouble()).put("saturation", saturation).put("sharpen", sharpen).put("sharpenMode", sharpenMode)
         .put("deband", deband).put("fxaa", fxaa).put("toon", toon).put("crt", crt).put("ntsc", ntsc).put("profile", profile)
@@ -100,6 +106,10 @@ data class XboxCloudSettings(
                 bitrateMbps = json.optInt("bitrateMbps", d.bitrateMbps).coerceIn(0, 100),
                 preventDrops = json.optBoolean("preventDrops", d.preventDrops), statsLevel = json.optInt("statsLevel", if (json.optBoolean("stats")) 3 else 0).coerceIn(0, 4),
                 statsLayout = json.optString("statsLayout", d.statsLayout).takeIf { it == "vertical" } ?: "horizontal",
+                statsPosition = json.optString("statsPosition", d.statsPosition).takeIf { it in setOf("tl", "tr", "bl", "br") } ?: d.statsPosition,
+                statsSize = json.optInt("statsSize", d.statsSize).coerceIn(9, 20), statsOpacity = json.optInt("statsOpacity", d.statsOpacity).coerceIn(0, 90),
+                statsColors = json.optBoolean("statsColors", d.statsColors),
+                videoFit = json.optString("videoFit", d.videoFit).takeIf { it in setOf("fit", "stretch", "fill") } ?: d.videoFit,
                 volume = json.optInt("volume", d.volume).coerceIn(100, 300), rumble = json.optInt("rumble", d.rumble).coerceIn(0, 100),
                 maxFps = json.optInt("maxFps", d.maxFps).coerceIn(0, 120),
                 brightness = json.optInt("brightness", d.brightness).coerceIn(-50, 50), contrast = json.optInt("contrast", d.contrast).coerceIn(-100, 100),
