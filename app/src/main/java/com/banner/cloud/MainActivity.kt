@@ -749,11 +749,19 @@ private fun cloudWait(app: Context, game: XboxGame): String? = runCatching {
 private fun loadLibrary(app: Context, account: String, market: String): Result<List<XboxGame>> = runCatching {
     val response = Xodus.run(app, listOf("library", "--json", "--market", market))
     val licenses = XboxCatalog.access(response, account, market, report = { XboxDiag.log(app, it) })
-    val products = XboxCatalog.rawProducts(licenses.keys.toList(), market)
     val cloud = runCatching { XboxCatalog.cloudCatalog(market) }
         .onFailure { XboxDiag.log(app, "cloud catalog failed: ${it.javaClass.simpleName}") }.getOrNull()
-    val list = mergeEditions(products.mapNotNull { XboxCatalog.product(it, licenses, market, cloud) }).sortedBy { it.title.lowercase() }
-    XboxDiag.log(app, "library requested=${licenses.size} returned=${products.size} supported=${list.size} " +
+    // Console purchases are missing from the PC app's entitlement list; the streaming service's title list has them.
+    val titles = runCatching { XboxCloudSession.titleList(XboxCloudSession.get(app, account), fresh = true) }
+        .onFailure { XboxDiag.log(app, "cloud titles failed: ${it.javaClass.simpleName}") }.getOrNull()
+    val added = titles?.entitled.orEmpty().filter { it !in licenses }
+        .associateWith { if (cloud?.gamePass?.contains(it) == true) "gamepass" else "owned" }
+    val access = licenses + added
+    val products = XboxCatalog.rawProducts(access.keys.toList(), market)
+    val list = mergeEditions(products.mapNotNull { XboxCatalog.product(it, access, market, cloud) }).sortedBy { it.title.lowercase() }
+    XboxDiag.log(app, "cloud titles=${titles?.ids?.size ?: -1} entitled=${titles?.entitled?.size ?: -1} " +
+        "added=${added.size} (owned ${added.values.count { it == "owned" }}, gamepass ${added.values.count { it == "gamepass" }})")
+    XboxDiag.log(app, "library requested=${access.size} returned=${products.size} supported=${list.size} " +
         "cloud=${list.count { it.cloud }} owned=${list.count { it.owned }} gamepass=${list.count { it.gamePass }} " +
         "cloud-lists=${cloud?.gamePass?.size ?: -1}/${cloud?.all?.size ?: -1}")
     runCatching { XboxLibraryCache.write(app, account, market, list) }

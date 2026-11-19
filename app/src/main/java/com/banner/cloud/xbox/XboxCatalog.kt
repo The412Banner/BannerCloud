@@ -36,23 +36,23 @@ data class XboxGame(
 
 /**
  * One card per game: Microsoft lists a game's console and PC editions as separate products, so a cloud-only
- * product whose title matches a PC game is folded into it (the PC card then also streams).
+ * product whose title matches a PC game is folded into it (the PC card then also streams, and counts as owned
+ * when the console edition is), and cloud-only products with the same title become one card (owned first).
  */
 internal fun mergeEditions(games: List<XboxGame>): List<XboxGame> {
     fun key(title: String) = title.lowercase().replace(Regex("[^a-z0-9]+"), "")
+    val pcKeys = games.filter { it.pc }.map { key(it.title) }.toSet()
     val cloudOnly = games.filter { !it.pc && it.cloud }.groupBy { key(it.title) }
-    val folded = HashSet<String>()
-    val merged = games.mapNotNull { game ->
+        .mapValues { (_, list) -> list.sortedByDescending { it.owned }.first() }
+    return games.mapNotNull { game ->
+        val console = cloudOnly[key(game.title)]
         when {
-            !game.pc -> game
-            game.cloud -> game
-            else -> cloudOnly[key(game.title)]?.firstOrNull()?.let { console ->
-                folded.add(console.id)
-                game.copy(cloud = true, cloudId = console.id)
-            } ?: game
+            !game.pc -> game.takeIf { key(game.title) !in pcKeys && (console == null || console === game) }
+            console == null -> game
+            else -> game.copy(cloud = true, cloudId = if (game.cloud) game.cloudId else console.id,
+                access = if (console.owned) "owned" else game.access)
         }
     }
-    return merged.filter { it.id !in folded }
 }
 
 /**
@@ -148,11 +148,26 @@ internal object XboxCatalog {
     /** The app's language first, then English. */
     private fun languages(): String = (listOf(StoreLang.xbox(), "en-us", "neutral")).distinct().joinToString(",")
 
-    fun rawProducts(ids: List<String>, market: String = Xodus.market()): List<JSONObject> =
-        ids.map { it.uppercase() }.filter { productId.matches(it) }.distinct().chunked(25).flatMap { batch ->
-            val body = get("https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=${batch.joinToString(",")}&market=$market&languages=${languages()}")
-            objects(body.optJSONArray("Products")).filter { it.optString("ProductId").uppercase() in batch }
+    /** The catalog entries for [ids], 25 per request, up to 4 requests at a time. */
+    fun rawProducts(ids: List<String>, market: String = Xodus.market()): List<JSONObject> {
+        val batches = ids.map { it.uppercase() }.filter { productId.matches(it) }.distinct().chunked(25)
+        val languages = languages()
+        fun fetchBatch(batch: List<String>): List<JSONObject> {
+            val body = get("https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=${batch.joinToString(",")}&market=$market&languages=$languages")
+            return objects(body.optJSONArray("Products")).filter { it.optString("ProductId").uppercase() in batch }
         }
+        if (batches.size <= 1) return batches.flatMap(::fetchBatch)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(4)
+        try {
+            val tasks = batches.map { batch -> pool.submit(java.util.concurrent.Callable { fetchBatch(batch) }) }
+            return tasks.flatMap { task ->
+                try { task.get(60, java.util.concurrent.TimeUnit.SECONDS) }
+                catch (e: java.util.concurrent.ExecutionException) { throw e.cause ?: e }
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+    }
 
     /**
      * xbox.com's search first, then the Microsoft Store's: the Store search leaves out console-first games that also

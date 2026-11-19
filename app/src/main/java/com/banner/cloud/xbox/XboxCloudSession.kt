@@ -49,7 +49,7 @@ internal object XboxCloudSession {
             json.optString("userToken").takeIf { !json.isNull("userToken") && it.isNotEmpty() }, System.currentTimeMillis() + seconds * 1000).also { cached = it }
     }
 
-    fun clear() { cached = null; cachedHome = null; titleIds = null; looked = null }
+    fun clear() { cached = null; cachedHome = null; titleList = null; looked = null }
 
     // ---- Remote Play (your own Xbox) ----
 
@@ -93,22 +93,36 @@ internal object XboxCloudSession {
         return last
     }
 
-    @Volatile private var titleIds: Pair<String, Map<String, String>>? = null
+    /** The streaming service's title list: Store product id -> cloud title id, and the products this account may play. */
+    class Titles(val ids: Map<String, String>, val entitled: Set<String>)
+
+    @Volatile private var titleList: Pair<String, Titles>? = null
 
     /** Store product id -> cloud title id for the titles this account may stream, from the streaming service itself. */
-    fun titles(session: Session): Map<String, String> {
-        titleIds?.takeIf { it.first == session.account }?.let { return it.second }
+    fun titles(session: Session): Map<String, String> = titleList(session).ids
+
+    /**
+     * GET /v2/titles. [Titles.entitled] = details.hasEntitlement or isFreeInStore (as Greenlight's xcloud.ts by
+     * unknownskl, MIT): it includes console purchases, which the PC app's entitlement list leaves out.
+     * [fresh] skips the copy kept from the last call.
+     */
+    fun titleList(session: Session, fresh: Boolean = false): Titles {
+        if (!fresh) titleList?.takeIf { it.first == session.account }?.let { return it.second }
         val reply = request(session, "GET", "/v2/titles")
         check(reply.status == 200) { "Xbox Cloud Gaming answered ${reply.status}" }
         val results = JSONObject(reply.body).optJSONArray("results") ?: JSONArray()
-        val map = (0 until results.length()).mapNotNull { index ->
-            val row = results.optJSONObject(index) ?: return@mapNotNull null
-            val product = row.optJSONObject("details")?.optString("productId")?.uppercase().orEmpty()
+        val ids = LinkedHashMap<String, String>()
+        val entitled = LinkedHashSet<String>()
+        for (index in 0 until results.length()) {
+            val row = results.optJSONObject(index) ?: continue
+            val details = row.optJSONObject("details")
+            val product = details?.optString("productId")?.uppercase().orEmpty()
             val title = row.optString("titleId")
-            if (product.matches(Regex("[A-Z0-9]{12}")) && title.isNotBlank() && title.length <= 64) product to title else null
-        }.toMap()
-        titleIds = session.account to map
-        return map
+            if (!product.matches(Regex("[A-Z0-9]{12}")) || title.isBlank() || title.length > 64) continue
+            ids.putIfAbsent(product, title)
+            if (details?.optBoolean("hasEntitlement") == true || details?.optBoolean("isFreeInStore") == true) entitled += product
+        }
+        return Titles(ids, entitled).also { titleList = session.account to it }
     }
 
     /**
