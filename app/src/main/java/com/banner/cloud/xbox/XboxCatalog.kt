@@ -148,13 +148,18 @@ internal object XboxCatalog {
     /** The app's language first, then English. */
     private fun languages(): String = (listOf(StoreLang.xbox(), "en-us", "neutral")).distinct().joinToString(",")
 
-    /** The catalog entries for [ids], 25 per request, up to 4 requests at a time. */
-    fun rawProducts(ids: List<String>, market: String = Xodus.market()): List<JSONObject> {
+    fun rawProducts(ids: List<String>, market: String = Xodus.market()): List<JSONObject> = productBatches(ids, market) { it }
+
+    /**
+     * The catalog entries for [ids], 25 per request, up to 4 requests at a time. [map] turns each batch into its
+     * results as it arrives: the raw entries are large, and a whole library of them does not fit in the heap.
+     */
+    fun <T> productBatches(ids: List<String>, market: String = Xodus.market(), map: (List<JSONObject>) -> List<T>): List<T> {
         val batches = ids.map { it.uppercase() }.filter { productId.matches(it) }.distinct().chunked(25)
         val languages = languages()
-        fun fetchBatch(batch: List<String>): List<JSONObject> {
+        fun fetchBatch(batch: List<String>): List<T> {
             val body = get("https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=${batch.joinToString(",")}&market=$market&languages=$languages")
-            return objects(body.optJSONArray("Products")).filter { it.optString("ProductId").uppercase() in batch }
+            return map(objects(body.optJSONArray("Products")).filter { it.optString("ProductId").uppercase() in batch })
         }
         if (batches.size <= 1) return batches.flatMap(::fetchBatch)
         val pool = java.util.concurrent.Executors.newFixedThreadPool(4)

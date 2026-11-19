@@ -756,12 +756,16 @@ private fun loadLibrary(app: Context, account: String, market: String): Result<L
         .onFailure { XboxDiag.log(app, "cloud titles failed: ${it.javaClass.simpleName}") }.getOrNull()
     val added = titles?.entitled.orEmpty().filter { it !in licenses }
         .associateWith { if (cloud?.gamePass?.contains(it) == true) "gamepass" else "owned" }
-    val access = licenses + added
-    val products = XboxCatalog.rawProducts(access.keys.toList(), market)
-    val list = mergeEditions(products.mapNotNull { XboxCatalog.product(it, access, market, cloud) }).sortedBy { it.title.lowercase() }
     XboxDiag.log(app, "cloud titles=${titles?.ids?.size ?: -1} entitled=${titles?.entitled?.size ?: -1} " +
         "added=${added.size} (owned ${added.values.count { it == "owned" }}, gamepass ${added.values.count { it == "gamepass" }})")
-    XboxDiag.log(app, "library requested=${access.size} returned=${products.size} supported=${list.size} " +
+    val access = licenses + added
+    val returned = java.util.concurrent.atomic.AtomicInteger()
+    val games = XboxCatalog.productBatches(access.keys.toList(), market) { batch ->
+        returned.addAndGet(batch.size)
+        batch.mapNotNull { XboxCatalog.product(it, access, market, cloud) }
+    }
+    val list = mergeEditions(games).sortedBy { it.title.lowercase() }
+    XboxDiag.log(app, "library requested=${access.size} returned=${returned.get()} supported=${list.size} " +
         "cloud=${list.count { it.cloud }} owned=${list.count { it.owned }} gamepass=${list.count { it.gamePass }} " +
         "cloud-lists=${cloud?.gamePass?.size ?: -1}/${cloud?.all?.size ?: -1}")
     runCatching { XboxLibraryCache.write(app, account, market, list) }
