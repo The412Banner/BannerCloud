@@ -52,7 +52,32 @@ internal object XboxCloudSession {
             json.optString("userToken").takeIf { !json.isNull("userToken") && it.isNotEmpty() }, System.currentTimeMillis() + seconds * 1000).also { cached = it }
     }
 
-    fun clear() { cached = null; cachedHome = null; titleList = null; looked = null }
+    fun clear() { cached = null; cachedHome = null; cachedConsole = null; titleList = null; looked = null }
+
+    @Volatile private var cachedConsole: Session? = null
+
+    /**
+     * A sign-in to the console cloud service ("xgpuconsole") instead of the web service ("xgpuweb"): a backup for
+     * titles Microsoft streams to consoles only (GTA VI), which refuse the web/PC/TV/phone device types with
+     * DeviceTypeNotAllowed. (As the modified Better xCloud userscript's offeringId override; unproven that
+     * Microsoft honours it for a non-console account.) Region bypass still applies.
+     */
+    fun getConsole(app: Context, account: String): Session {
+        cachedConsole?.takeIf { it.account == account && it.fresh }?.let { return it }
+        val bypass = XboxCloudSettings.load(app).bypassRegion
+        val env = HashMap<String, String>()
+        env["NEXUS_CLOUD_OFFERING"] = "xgpuconsole"
+        XboxCloudSettings.BYPASS_IPS[bypass]?.let { env["NEXUS_CLOUD_FORWARDED_FOR"] = it }
+        val json = Xodus.run(app, listOf("cloud-token"), timeout = 60, extraEnv = env)
+        require(json.getInt("schema") == 1 && json.getString("account") == account)
+        val array = json.getJSONArray("regions")
+        val regions = (0 until array.length()).map { array.getJSONObject(it) }
+            .map { Region(it.getString("name"), it.getString("baseUri"), it.optBoolean("isDefault")) }
+        val default = regions.firstOrNull { it.isDefault } ?: regions.firstOrNull() ?: error("No console cloud region")
+        val seconds = json.optLong("durationInSeconds").coerceIn(0, 24 * 3600)
+        return Session(account, json.getString("gsToken"), json.getString("offering"), default.baseUri, regions,
+            json.optString("userToken").takeIf { !json.isNull("userToken") && it.isNotEmpty() }, System.currentTimeMillis() + seconds * 1000).also { cachedConsole = it }
+    }
 
     // ---- Remote Play (your own Xbox) ----
 

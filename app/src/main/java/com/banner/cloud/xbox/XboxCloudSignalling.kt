@@ -16,6 +16,8 @@ internal class XboxCloudSignalling(
     private val kind: String = "cloud",
     private val serverId: String = "",
     private val note: (String) -> Unit = {},
+    /** A backup sign-in to the console cloud service, tried when the web service keeps refusing the device type. */
+    private val consoleSession: (() -> XboxCloudSession.Session?)? = null,
 ) {
     /** Changes when the service refuses the device type the stream asked as (see [start]). */
     @Volatile private var session: XboxCloudSession.Session = session
@@ -40,12 +42,31 @@ internal class XboxCloudSignalling(
      * GTA VI is not streamed to Windows); then it asks again as a TV (tizen, 1080p) and as Android (720p).
      */
     fun start(): XboxCloudSession.Reply {
+        if (kind != "cloud") return start(session.osName)
+        var reply = startWithDeviceFallback()
+        // Still refused as every device type: try the console cloud service (the sign-in says console, not web/PC).
+        val console = consoleSession
+        if (isDeviceBlocked(reply) && console != null) {
+            val cs = runCatching { console() }.getOrNull()
+            if (cs != null) {
+                note("still blocked; signing in to the console service and retrying (experimental)")
+                session = cs
+                reply = startWithDeviceFallback()
+                if (reply.status in 200..299) note("started on the console service")
+            }
+        }
+        return reply
+    }
+
+    private fun isDeviceBlocked(reply: XboxCloudSession.Reply) = reply.status == 400 && reply.body.contains("DeviceTypeNotAllowed")
+
+    /** Tries the session's device type, then TV and phone, while the service keeps answering DeviceTypeNotAllowed. */
+    private fun startWithDeviceFallback(): XboxCloudSession.Reply {
         val first = session.osName
         var reply = start(first)
-        if (kind != "cloud") return reply
         for (os in listOf("tizen", "android").filter { it != first }) {
-            if (reply.status != 400 || !reply.body.contains("DeviceTypeNotAllowed")) break
-            note("device type $first not allowed for this title, asking as $os")
+            if (!isDeviceBlocked(reply)) break
+            note("device type ${session.osName} not allowed for this title, asking as $os")
             session = session.withOs(os)
             reply = start(os)
         }

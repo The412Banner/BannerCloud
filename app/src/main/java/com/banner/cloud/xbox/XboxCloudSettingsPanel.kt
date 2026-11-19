@@ -133,6 +133,8 @@ private fun PanelContent(
             XboxCloudSession.clear()
             onChange(settings.copy(bypassRegion = it, region = ""))
         }
+        Toggle("Console service fallback", "If a game is refused because it only streams to Xbox consoles (e.g. GTA VI), retry by signing in as the console service. Experimental — Microsoft may still block it.",
+            settings.consoleFallback) { onChange(settings.copy(consoleFallback = it)) }
         Choice("Game language", XboxCloudSettings.LANGUAGES, settings.language,
             pending { it.language != settings.language }) { onChange(settings.copy(language = it)) }
         Choice("Video codec quality", listOf("default" to "Automatic", "high" to "High", "normal" to "Normal", "low" to "Low"), settings.codec,

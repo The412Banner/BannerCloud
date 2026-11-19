@@ -6,9 +6,9 @@ index 882da41..dc7e633 100644
      offering_response(&body)
  }
  
-+/// Remote Play (BannerCloud): NEXUS_CLOUD_OFFERING=xhome signs in to the home-console service instead.
++/// Alternate offerings (BannerCloud): NEXUS_CLOUD_OFFERING=xhome = Remote Play (home console); xgpuconsole = the console cloud service (device-type fallback for console-only titles, e.g. GTA VI).
 +fn offerings() -> &'static [&'static str] {
-+    if std::env::var("NEXUS_CLOUD_OFFERING").ok().as_deref() == Some("xhome") { &["xhome"] } else { &OFFERINGS }
++    match std::env::var("NEXUS_CLOUD_OFFERING").ok().as_deref() { Some("xhome") => &["xhome"], Some("xgpuconsole") => &["xgpuconsole"], _ => &OFFERINGS }
 +}
 +
  async fn select_offering<F, Fut>(mut request: F) -> Result<(&'static str, Value), String>
@@ -27,7 +27,7 @@ index 882da41..dc7e633 100644
      // Diagnostic lines are letters and dashes only (the app's allow-list).
      if forwarded_for().is_some() { eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 region-bypass-on"); }
 -    eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 gssv-login-ok-{}", if offering == "xgpuweb" { "gamepass" } else { "free" });
-+    eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 gssv-login-ok-{}", match offering { "xgpuweb" => "gamepass", "xhome" => "home", _ => "free" });
++    eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 gssv-login-ok-{}", match offering { "xgpuweb" => "gamepass", "xhome" => "home", "xgpuconsole" => "console", _ => "free" });
      let transfer = transfer_token(tokens, &client).await;
      eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 transfer-token-{}", if transfer.is_ok() { "ok" } else { "missing" });
      if tokens.get_user().map_err(|_| "account-changed")?.username != account { return Err("account-changed".into()); }

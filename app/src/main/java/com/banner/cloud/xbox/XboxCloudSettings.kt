@@ -16,6 +16,7 @@ data class XboxCloudSettings(
     val resolution: String = "1080p",      // 720p | 1080p | 1080p_hq
     val region: String = "",                // "" = Microsoft's choice, else a region name
     val bypassRegion: String = "off",       // off | br | jp | kr | pl | us: cloud sign-in as that country (Better xCloud's bypass)
+    val consoleFallback: Boolean = true,     // if a title is refused (DeviceTypeNotAllowed), retry on the console cloud service (console-only titles, e.g. GTA VI)
     val language: String = "",              // "" = the device's language
     val codec: String = "default",          // default | high | normal | low
     val bitrateMbps: Int = 0,               // 0 = no cap
@@ -71,7 +72,7 @@ data class XboxCloudSettings(
     val osName get() = when (resolution) { "720p" -> "android"; "1080p_hq" -> "tizen"; else -> "windows" }
 
     fun toJson(): String = JSONObject()
-        .put("resolution", resolution).put("region", region).put("bypassRegion", bypassRegion).put("language", language).put("codec", codec)
+        .put("resolution", resolution).put("region", region).put("bypassRegion", bypassRegion).put("consoleFallback", consoleFallback).put("language", language).put("codec", codec)
         .put("bitrateMbps", bitrateMbps).put("preventDrops", preventDrops).put("statsLevel", statsLevel).put("statsLayout", statsLayout).put("statsPosition", statsPosition).put("statsSize", statsSize)
         .put("statsOpacity", statsOpacity).put("statsColors", statsColors).put("videoFit", videoFit)
         .put("coop", coop).put("swapAB", swapAB).put("swapXY", swapXY).put("remap", remap).put("deadzone", deadzone)
@@ -116,7 +117,8 @@ data class XboxCloudSettings(
             XboxCloudSettings(
                 resolution = json.optString("resolution", d.resolution).takeIf { it in setOf("720p", "1080p", "1080p_hq") } ?: d.resolution,
                 region = json.optString("region", d.region),
-                bypassRegion = json.optString("bypassRegion", d.bypassRegion).takeIf { it in BYPASS_IPS.keys } ?: "off", language = json.optString("language", d.language),
+                bypassRegion = json.optString("bypassRegion", d.bypassRegion).takeIf { it in BYPASS_IPS.keys } ?: "off",
+                consoleFallback = json.optBoolean("consoleFallback", d.consoleFallback), language = json.optString("language", d.language),
                 codec = json.optString("codec", d.codec).takeIf { it in setOf("default", "high", "normal", "low") } ?: d.codec,
                 bitrateMbps = json.optInt("bitrateMbps", d.bitrateMbps).coerceIn(0, 100),
                 preventDrops = json.optBoolean("preventDrops", d.preventDrops), statsLevel = json.optInt("statsLevel", if (json.optBoolean("stats")) 3 else 0).coerceIn(0, 4),
