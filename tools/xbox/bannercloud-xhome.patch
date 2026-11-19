@@ -1,0 +1,33 @@
+diff --git a/crates/xodus-cli/src/commands/cloud_token.rs b/crates/xodus-cli/src/commands/cloud_token.rs
+index 882da41..dc7e633 100644
+--- a/crates/xodus-cli/src/commands/cloud_token.rs
++++ b/crates/xodus-cli/src/commands/cloud_token.rs
+@@ -97,13 +97,18 @@ async fn request_offering(client: &reqwest::Client, endpoint: &str, xsts: &str,
+     offering_response(&body)
+ }
+ 
++/// Remote Play (BannerCloud): NEXUS_CLOUD_OFFERING=xhome signs in to the home-console service instead.
++fn offerings() -> &'static [&'static str] {
++    if std::env::var("NEXUS_CLOUD_OFFERING").ok().as_deref() == Some("xhome") { &["xhome"] } else { &OFFERINGS }
++}
++
+ async fn select_offering<F, Fut>(mut request: F) -> Result<(&'static str, Value), String>
+ where
+     F: FnMut(&'static str) -> Fut,
+     Fut: std::future::Future<Output = Result<Value, &'static str>>,
+ {
+     let mut failures = Vec::new();
+-    for offering in OFFERINGS {
++    for offering in offerings().iter().copied() {
+         match request(offering).await {
+             Ok(value) => return Ok((offering, value)),
+             Err(stage) => failures.push(format!("{offering}:{stage}")),
+@@ -124,7 +129,7 @@ async fn login(tokens: &TokenManager) -> Result<Value, String> {
+     }).await?;
+     // Diagnostic lines are letters and dashes only (the app's allow-list).
+     if forwarded_for().is_some() { eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 region-bypass-on"); }
+-    eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 gssv-login-ok-{}", if offering == "xgpuweb" { "gamepass" } else { "free" });
++    eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 gssv-login-ok-{}", match offering { "xgpuweb" => "gamepass", "xhome" => "home", _ => "free" });
+     let transfer = transfer_token(tokens, &client).await;
+     eprintln!("NEXUS_SESSION_DIAGNOSTIC_V1 transfer-token-{}", if transfer.is_ok() { "ok" } else { "missing" });
+     if tokens.get_user().map_err(|_| "account-changed")?.username != account { return Err("account-changed".into()); }

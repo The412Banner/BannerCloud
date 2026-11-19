@@ -245,13 +245,14 @@ private fun SignInScreen(backendReady: Boolean, message: String?, onSignIn: () -
 // ---------------------------------------------------------------------------------------------------
 // Library
 
-private enum class Filter(val label: String) { CLOUD("Cloud"), OWNED("Owned"), GAME_PASS("Game Pass"), ALL("All") }
+private enum class Filter(val label: String) { CLOUD("Cloud"), OWNED("Owned"), GAME_PASS("Game Pass"), ALL("All"), REMOTE("Remote Play") }
 
 private fun Filter.matches(game: XboxGame) = when (this) {
     Filter.CLOUD -> game.cloud
     Filter.OWNED -> game.owned
     Filter.GAME_PASS -> game.gamePass
     Filter.ALL -> true
+    Filter.REMOTE -> false
 }
 
 private sealed interface Page {
@@ -277,6 +278,20 @@ private fun LibraryScreen(activity: MainActivity, account: String, shownName: St
     var lastGameId by remember { mutableStateOf<String?>(null) }
     val gridState = rememberLazyGridState()
     val searchFocus = remember { FocusRequester() }
+    var consoles by remember { mutableStateOf<List<XboxCloudSession.Console>?>(null) }
+    var consolesLoading by remember { mutableStateOf(false) }
+    var consolesError by remember { mutableStateOf<String?>(null) }
+    fun loadConsoles() {
+        if (consolesLoading) return
+        consolesLoading = true; consolesError = null
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching { XboxCloudSession.consoles(XboxCloudSession.getHome(app, account)).second } }
+                .onSuccess { consoles = it }
+                .onFailure { consolesError = it.message ?: "Remote Play is not available for this account."; XboxDiag.log(app, "remote play list failed: ${it.javaClass.simpleName}") }
+            consolesLoading = false
+        }
+    }
+    LaunchedEffect(filter) { if (filter == Filter.REMOTE && consoles == null) loadConsoles() }
     val gamepad = remember { hasGamepad() }
 
     LaunchedEffect(externalMessage) { if (externalMessage != null) { message = externalMessage; onMessageShown() } }
@@ -305,7 +320,7 @@ private fun LibraryScreen(activity: MainActivity, account: String, shownName: St
                 when (command) {
                     PadCommand.PREV_TAB -> filter = Filter.entries[(filter.ordinal + Filter.entries.size - 1) % Filter.entries.size]
                     PadCommand.NEXT_TAB -> filter = Filter.entries[(filter.ordinal + 1) % Filter.entries.size]
-                    PadCommand.REFRESH -> sync(true)
+                    PadCommand.REFRESH -> if (filter == Filter.REMOTE) loadConsoles() else sync(true)
                     PadCommand.SEARCH -> { searching = !searching; if (!searching) query = "" }
                     PadCommand.SETTINGS -> ctx.startActivity(Intent(ctx, XboxCloudSettingsActivity::class.java))
                 }
@@ -338,7 +353,12 @@ private fun LibraryScreen(activity: MainActivity, account: String, shownName: St
                     restoreId = lastGameId,
                     onFilter = { filter = it }, onQuery = { query = it.take(80) },
                     onSearch = { searching = !searching; if (!searching) query = "" },
-                    onRefresh = { sync(true) },
+                    onRefresh = { if (filter == Filter.REMOTE) loadConsoles() else sync(true) },
+                    consoles = consoles, consolesLoading = consolesLoading, consolesError = consolesError,
+                    onConsole = { c ->
+                        ctx.startActivity(Intent(ctx, com.banner.cloud.xbox.XboxNativePlayerActivity::class.java)
+                            .putExtra("home", true).putExtra("serverId", c.serverId).putExtra("title", c.name))
+                    },
                     onSettings = { ctx.startActivity(Intent(ctx, XboxCloudSettingsActivity::class.java)) },
                     onSignOut = { page = Page.SignOut },
                     onOpen = { lastGameId = it.id; page = Page.Detail(it) },
@@ -368,6 +388,8 @@ private fun GridPage(
     searchFocus: FocusRequester, gamepad: Boolean, restoreId: String?,
     onFilter: (Filter) -> Unit, onQuery: (String) -> Unit, onSearch: () -> Unit, onRefresh: () -> Unit,
     onSettings: () -> Unit, onSignOut: () -> Unit, onOpen: (XboxGame) -> Unit,
+    consoles: List<XboxCloudSession.Console>?, consolesLoading: Boolean, consolesError: String?,
+    onConsole: (XboxCloudSession.Console) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         val wide = maxWidth > maxHeight
@@ -407,13 +429,13 @@ private fun GridPage(
                 horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (gamepad) PadHint("LB")
                 Filter.entries.forEach { f ->
-                    FilterPill(f.label, games.count { f.matches(it) }, selected = filter == f) { onFilter(f) }
+                    FilterPill(f.label, if (f == Filter.REMOTE) consoles?.size ?: -1 else games.count { f.matches(it) }, selected = filter == f) { onFilter(f) }
                 }
                 if (gamepad) PadHint("RB")
             }
             // Grid
             Box(Modifier.weight(1f).fillMaxWidth()) {
-                when {
+                if (filter == Filter.REMOTE) ConsolesPane(consoles, consolesLoading, consolesError, gamepad, onConsole) else when {
                     !loaded && shown.isEmpty() -> SkeletonGrid(if (compact) 110.dp else if (wide) 150.dp else 128.dp)
                     shown.isEmpty() -> Text(if (games.isEmpty()) "No games yet. Refresh to load your library." else "Nothing here.",
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
@@ -466,6 +488,57 @@ private fun GridPage(
     }
 }
 
+/** Remote Play: the account's consoles (stream from your own Xbox). */
+@Composable
+private fun ConsolesPane(consoles: List<XboxCloudSession.Console>?, loading: Boolean, error: String?, gamepad: Boolean,
+                         onConsole: (XboxCloudSession.Console) -> Unit) {
+    val first = remember { FocusRequester() }
+    when {
+        loading && consoles == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Looking for your consoles…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        error != null -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text(error, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        consoles.isNullOrEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Text("No consoles found. On your Xbox: Settings › Devices & connections › Remote features › Enable remote features, " +
+                "and keep it on or in sleep mode.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        else -> {
+            val list = consoles.orEmpty()
+            LazyVerticalGrid(columns = GridCells.Adaptive(220.dp), contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp), verticalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxSize()) {
+                items(list, key = { it.serverId }) { c ->
+                    val shape = RoundedCornerShape(16.dp)
+                    val own = remember { FocusRequester() }
+                    val requester = if (c.serverId == list.first().serverId) first else own
+                    Column(Modifier.focusRequester(requester).focusHighlight(shape, zoom = 1.04f, width = 3.dp).clip(shape)
+                        .background(MaterialTheme.colorScheme.surface).clickable { onConsole(c) }.padding(18.dp)) {
+                        Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(XboxGreen), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.PlayArrow, null, tint = Color.White)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Text(c.name, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 1,
+                            overflow = TextOverflow.Ellipsis)
+                        Text(listOf(consoleType(c.type), powerText(c.power)).filter { it.isNotEmpty() }.joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            if (gamepad) LaunchedEffect(list.size) { delay(80); runCatching { first.requestFocus() } }
+        }
+    }
+}
+
+private fun consoleType(type: String): String = when (type) {
+    "XboxSeriesX" -> "Xbox Series X"; "XboxSeriesS" -> "Xbox Series S"; "XboxOne" -> "Xbox One"; "XboxOneS" -> "Xbox One S"
+    "XboxOneX", "XboxOneXDevkit" -> "Xbox One X"; else -> type.replace(Regex("([a-z])([A-Z])"), "$1 $2")
+}
+
+private fun powerText(power: String): String = when (power) {
+    "On" -> "On"; "ConnectedStandby" -> "Sleeping (wakes when you connect)"; "Off" -> "Off"; else -> ""
+}
+
 @Composable
 private fun HeaderButton(icon: ImageVector, label: String, onClick: () -> Unit) {
     val shape = CircleShape
@@ -483,8 +556,10 @@ private fun FilterPill(label: String, count: Int, selected: Boolean, onClick: ()
     Row(Modifier.focusHighlight(shape, zoom = 1.06f).clip(shape).background(bg).clickable(onClick = onClick)
         .padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = fg, style = MaterialTheme.typography.labelLarge)
-        Spacer(Modifier.width(6.dp))
-        Text(count.toString(), color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.labelLarge)
+        if (count >= 0) {
+            Spacer(Modifier.width(6.dp))
+            Text(count.toString(), color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.labelLarge)
+        }
     }
 }
 

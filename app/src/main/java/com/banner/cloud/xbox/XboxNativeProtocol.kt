@@ -103,7 +103,9 @@ internal class XboxNativeProtocol(
         when (data.optString("target")) {
             "/streaming/sessionLifetimeManagement/serverInitiatedDisconnect" -> {
                 complete(data.optString("id"), "")
-                onServerDisconnect()
+                // An idle warning is not the end (Better xCloud's remote-play-keep-alive, MIT); the real disconnect follows if ignored.
+                val reason = runCatching { JSONObject(data.optString("content")).optString("reason") }.getOrDefault("")
+                if (reason == "WarningForBeingIdle") log("server idle warning") else onServerDisconnect()
             }
             // The game's own dialogs: accept (Greenlight shows a confirm; the native player has no page).
             "/streaming/systemUi/messages/ShowMessageDialog" -> complete(data.optString("id"), JSONObject().put("Result", 0))

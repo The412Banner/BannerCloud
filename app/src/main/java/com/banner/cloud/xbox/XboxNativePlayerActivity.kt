@@ -141,7 +141,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
         root.addView(androidx.compose.ui.platform.ComposeView(this).apply {
             setContent { com.banner.cloud.ui.CloudTheme { com.banner.cloud.ui.LaunchArt(artUrls, gameTitle, artVisible) } }
         }, FrameLayout.LayoutParams(-1, -1))
-        loadArt(intent.getStringExtra("product").orEmpty())
+        if (!intent.getBooleanExtra("home", false)) loadArt(intent.getStringExtra("product").orEmpty())
         status = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER; setShadowLayer(10f, 0f, 0f, Color.BLACK)
         }
@@ -298,6 +298,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
 
     private fun run() {
         val account = XboxAccountStore.signedInAs(applicationContext) ?: error("Sign in first.")
+        if (intent.getBooleanExtra("home", false)) return runHome(account)
         val requested = intent.getStringExtra("product").orEmpty()
         val cached = XboxLibraryCache.read(applicationContext, account, Xodus.market())?.games?.firstOrNull { it.id == requested }
         val product = cached?.cloudId ?: requested
@@ -315,7 +316,24 @@ class XboxNativePlayerActivity : ComponentActivity() {
 
         val waitEstimate = XboxCloudSession.waitSeconds(active, title)
         if (waitEstimate != null) log("estimated wait ${waitEstimate}s")
-        show("Starting the game on Xbox Cloud Gaming…")
+        stream(signals, waitEstimate, home = false)
+    }
+
+    /** Remote Play: the same stream from the account's own console (session kind "home", no title). */
+    private fun runHome(account: String) {
+        val serverId = intent.getStringExtra("serverId").orEmpty().ifEmpty { error("No console chosen.") }
+        val home = XboxCloudSession.getHome(applicationContext, account)
+        val (active, _) = XboxCloudSession.consoles(home)
+        regionNames = emptyList()
+        serverName = "Remote Play"
+        val signals = XboxCloudSignalling(active.forStream(active.regionList.firstOrNull { it.baseUri == active.baseUri }?.name ?: "", settings.osName),
+            "", settings, kind = "home", serverId = serverId).also { signalling = it }
+        log("remote play: console ${serverId.take(6)}…, region ${java.net.URI(active.baseUri).host}, frame gen ${settings.frameGen}")
+        stream(signals, null, home = true)
+    }
+
+    private fun stream(signals: XboxCloudSignalling, waitEstimate: Int?, home: Boolean) {
+        show(if (home) "Starting Remote Play on your Xbox…" else "Starting the game on Xbox Cloud Gaming…")
         expect("start", signals.start())
         var connected = false
         var waited = 0
@@ -380,6 +398,21 @@ class XboxNativePlayerActivity : ComponentActivity() {
         val iceReply = expect("ice", signals.ice(JSONArray(local2).toString()))
         val remote = JSONArray(JSONObject(iceReply.body).getString("exchangeResponse"))
         for (i in 0 until remote.length()) addRemoteCandidate(peer, remote.getJSONObject(i))
+        // Remote Play: the console's own addresses as extra host candidates (Better xCloud's xhome-interceptor, MIT).
+        if (home) runCatching {
+            val details = JSONObject(signals.configuration().body).optJSONObject("serverDetails")
+            if (details != null) {
+                val pairs = listOf("ipAddress" to "port", "ipV4Address" to "ipV4Port", "ipV6Address" to "ipV6Port")
+                    .mapNotNull { (a, p) -> details.optString(a).takeIf { it.isNotBlank() && it.length <= 64 }?.let { it to details.optInt(p, 0) } }
+                var n = 10
+                pairs.forEach { (ip, port) ->
+                    listOf(port, 9002).filter { it in 1..65535 }.distinct().forEach { pt ->
+                        peer.addIceCandidate(IceCandidate("0", 0, "candidate:${n++} 1 UDP 1 $ip $pt typ host "))
+                    }
+                }
+                log("remote play: ${pairs.size} console address(es) added")
+            }
+        }.onFailure { log("remote play configuration: ${it.javaClass.simpleName}") }
         log("signalling done: ${local2.size} local / ${remote.length()} remote candidates")
         ticker.scheduleWithFixedDelay({ runCatching { signals.op("keepalive") } }, 30, 30, TimeUnit.SECONDS)
         ticker.scheduleWithFixedDelay({ runCatching { updateOverlay() } }, 1, 1, TimeUnit.SECONDS)

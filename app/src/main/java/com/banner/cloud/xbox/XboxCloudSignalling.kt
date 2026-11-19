@@ -12,6 +12,9 @@ internal class XboxCloudSignalling(
     private val session: XboxCloudSession.Session,
     private val titleId: String,
     private val settings: XboxCloudSettings,
+    /** "cloud", or "home" for Remote Play (then [serverId] is the console and [titleId] is empty). */
+    private val kind: String = "cloud",
+    private val serverId: String = "",
 ) {
     /** "v5/sessions/cloud/<id>" once started. */
     @Volatile var path: String? = null
@@ -34,8 +37,8 @@ internal class XboxCloudSignalling(
                 .put("enableTextToSpeech", false).put("highContrast", 0).put("locale", settings.language.ifEmpty { java.util.Locale.getDefault().toLanguageTag() })
                 .put("useIceConnection", false).put("timezoneOffsetMinutes", java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000)
                 .put("sdkType", "web").put("osName", settings.osName))
-            .put("serverId", "").put("fallbackRegionNames", JSONArray())
-        return XboxCloudSession.request(session, "POST", "/v5/sessions/cloud/play", body.toString()).also { reply ->
+            .put("serverId", serverId).put("fallbackRegionNames", JSONArray())
+        return XboxCloudSession.request(session, "POST", "/v5/sessions/$kind/play", body.toString()).also { reply ->
             if (reply.status in 200..299) path = JSONObject(reply.body).getString("sessionPath").trim('/')
         }
     }
@@ -65,6 +68,9 @@ internal class XboxCloudSignalling(
         val posted = XboxCloudSession.request(session, "POST", "/$path/sdp", body.toString())
         return if (posted.status !in 200..299) posted else poll("/$path/sdp")
     }
+
+    /** The session's configuration (Remote Play: the console's addresses for extra ICE candidates). */
+    fun configuration(): XboxCloudSession.Reply = XboxCloudSession.request(session, "GET", "/$path/configuration")
 
     fun ice(candidates: String): XboxCloudSession.Reply {
         val posted = XboxCloudSession.request(session, "POST", "/$path/ice", JSONObject().put("candidates", JSONArray(candidates)).toString())

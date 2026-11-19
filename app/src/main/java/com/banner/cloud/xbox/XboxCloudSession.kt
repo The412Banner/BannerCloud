@@ -49,7 +49,49 @@ internal object XboxCloudSession {
             json.optString("userToken").takeIf { !json.isNull("userToken") && it.isNotEmpty() }, System.currentTimeMillis() + seconds * 1000).also { cached = it }
     }
 
-    fun clear() { cached = null; titleIds = null; looked = null }
+    fun clear() { cached = null; cachedHome = null; titleIds = null; looked = null }
+
+    // ---- Remote Play (your own Xbox) ----
+
+    class Console(val serverId: String, val name: String, val type: String, val power: String)
+
+    @Volatile private var cachedHome: Session? = null
+
+    /**
+     * The Remote Play (xHome) session: the backend's login to the "xhome" offering (NEXUS_CLOUD_OFFERING=xhome;
+     * xhome.gssv-play-prod.xboxlive.com/v2/login/user, as Better xCloud's remote-play-manager, MIT).
+     */
+    fun getHome(app: Context, account: String): Session {
+        cachedHome?.takeIf { it.account == account && it.fresh }?.let { return it }
+        val json = Xodus.run(app, listOf("cloud-token"), timeout = 60, extraEnv = mapOf("NEXUS_CLOUD_OFFERING" to "xhome"))
+        require(json.getInt("schema") == 1 && json.getString("account") == account)
+        val array = json.getJSONArray("regions")
+        val regions = (0 until array.length()).map { array.getJSONObject(it) }
+            .map { Region(it.getString("name"), it.getString("baseUri"), it.optBoolean("isDefault")) }
+        val default = regions.firstOrNull { it.isDefault } ?: regions.firstOrNull() ?: error("No Remote Play region")
+        val seconds = json.optLong("durationInSeconds").coerceIn(0, 24 * 3600)
+        return Session(account, json.getString("gsToken"), json.getString("offering"), default.baseUri, regions,
+            json.optString("userToken").takeIf { !json.isNull("userToken") && it.isNotEmpty() }, System.currentTimeMillis() + seconds * 1000).also { cachedHome = it }
+    }
+
+    /** The account's consoles with Remote Play on (GET /v6/servers/home?mr=50, default region first, first non-empty answer). */
+    fun consoles(session: Session): Pair<Session, List<Console>> {
+        val order = session.regionList.sortedByDescending { it.isDefault }
+        var last: Pair<Session, List<Console>> = session to emptyList()
+        for (region in order) {
+            val regional = session.forStream(region.name, session.osName)
+            val reply = runCatching { request(regional, "GET", "/v6/servers/home?mr=50") }.getOrNull() ?: continue
+            if (reply.status != 200) continue
+            val results = runCatching { JSONObject(reply.body).optJSONArray("results") }.getOrNull() ?: JSONArray()
+            val list = (0 until results.length()).mapNotNull { results.optJSONObject(it) }.mapNotNull { c ->
+                val id = c.optString("serverId").takeIf { it.isNotBlank() && it.length <= 64 } ?: return@mapNotNull null
+                Console(id, c.optString("deviceName").ifBlank { "Xbox" }.take(60), c.optString("consoleType"), c.optString("powerState"))
+            }
+            last = regional to list
+            if (list.isNotEmpty()) return last
+        }
+        return last
+    }
 
     @Volatile private var titleIds: Pair<String, Map<String, String>>? = null
 
