@@ -26,6 +26,8 @@ import kotlinx.coroutines.withContext
 
 /** Settings: the player's defaults (the same panel as the in-player menu). */
 class XboxCloudSettingsActivity : ComponentActivity() {
+    private val micPermission = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
         com.banner.cloud.ui.mapFaceButtons(event)?.let { super.dispatchKeyEvent(it) } ?: super.dispatchKeyEvent(event)
 
@@ -49,6 +51,9 @@ class XboxCloudSettingsActivity : ComponentActivity() {
                     Text("Player settings", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onBackground, modifier = Modifier.padding(horizontal = 16.dp))
                     XboxCloudSettingsPanel(settings, regions, live = false) { changed ->
+                        if (changed.micOn && !settings.micOn &&
+                            checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                            micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
                         settings = changed
                         XboxCloudSettings.save(this@XboxCloudSettingsActivity, changed)
                     }

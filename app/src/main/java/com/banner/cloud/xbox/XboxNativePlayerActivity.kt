@@ -75,7 +75,9 @@ class XboxNativePlayerActivity : ComponentActivity() {
     private var micTrack: org.webrtc.AudioTrack? = null
     @Volatile private var micActive = false
     private val micPermission = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) worker.execute { setMic(true) } else { show("Microphone permission denied"); root.postDelayed({ show("") }, 2500) }
+        // Android lets the app record only while it is on screen: start once the permission dialog has gone.
+        if (!granted) { show("Microphone permission denied"); root.postDelayed({ show("") }, 2500) }
+        else if (connectedOnce && settings.micOn) root.postDelayed({ worker.execute { setMic(true) } }, 900)
     }
     // On-screen controller
     private var touchVisible by androidx.compose.runtime.mutableStateOf(false)
@@ -165,6 +167,9 @@ class XboxNativePlayerActivity : ComponentActivity() {
         pad.onSlotChanged = { index, added -> protocol?.announce(index, added); log("controller ${index + 1} ${if (added) "joined" else "left"}") }
         settings = XboxCloudSettings.load(this)
         applyInputSettings()
+        // Ask for the microphone before the stream starts (the recorder must start while the player is on screen).
+        if (settings.micOn && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
         applyDisplayRate(settings.fpsTarget)
         applyOverlay()
 
@@ -370,7 +375,18 @@ class XboxNativePlayerActivity : ComponentActivity() {
         log("latency: instant input ${settings.instantInput}, small buffer ${settings.smallBuffer}, fast decoder ${settings.fastDecoder}, " +
             "zero-copy ${zeroSurface != null}")
         val f = PeerConnectionFactory.builder()
-            .setAudioDeviceModule(JavaAudioDeviceModule.builder(applicationContext).createAudioDeviceModule())
+            .setAudioDeviceModule(JavaAudioDeviceModule.builder(applicationContext)
+                .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
+                    override fun onWebRtcAudioRecordInitError(message: String) = log("microphone init error: $message")
+                    override fun onWebRtcAudioRecordStartError(code: JavaAudioDeviceModule.AudioRecordStartErrorCode, message: String) =
+                        log("microphone start error: $code $message")
+                    override fun onWebRtcAudioRecordError(message: String) = log("microphone error: $message")
+                })
+                .setAudioRecordStateCallback(object : JavaAudioDeviceModule.AudioRecordStateCallback {
+                    override fun onWebRtcAudioRecordStart() = log("microphone recording")
+                    override fun onWebRtcAudioRecordStop() = log("microphone stopped")
+                })
+                .createAudioDeviceModule())
             .setVideoDecoderFactory(org.webrtc.BannerlatorLowLatencyDecoderFactory(egl.eglBaseContext, settings.fastDecoder, zeroSurface) { zeroCopyFrames++ }
                 .also { decoders = it })
             .setVideoEncoderFactory(DefaultVideoEncoderFactory(egl.eglBaseContext, true, true))
