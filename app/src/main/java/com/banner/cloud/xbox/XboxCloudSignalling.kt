@@ -9,13 +9,17 @@ import org.json.JSONObject
  * Shared by the web-view player and the native player.
  */
 internal class XboxCloudSignalling(
-    private val session: XboxCloudSession.Session,
+    session: XboxCloudSession.Session,
     private val titleId: String,
     private val settings: XboxCloudSettings,
     /** "cloud", or "home" for Remote Play (then [serverId] is the console and [titleId] is empty). */
     private val kind: String = "cloud",
     private val serverId: String = "",
+    private val note: (String) -> Unit = {},
 ) {
+    /** Changes when the service refuses the device type the stream asked as (see [start]). */
+    @Volatile private var session: XboxCloudSession.Session = session
+
     /** "v5/sessions/cloud/<id>" once started. */
     @Volatile var path: String? = null
         private set
@@ -31,12 +35,30 @@ internal class XboxCloudSignalling(
         else -> XboxCloudSession.Reply(0, "unknown request")
     }
 
+    /**
+     * Starts the session. Some titles refuse some device types ("DeviceTypeNotAllowed": a console-only game such as
+     * GTA VI is not streamed to Windows); then it asks again as a TV (tizen, 1080p) and as Android (720p).
+     */
     fun start(): XboxCloudSession.Reply {
+        val first = session.osName
+        var reply = start(first)
+        if (kind != "cloud") return reply
+        for (os in listOf("tizen", "android").filter { it != first }) {
+            if (reply.status != 400 || !reply.body.contains("DeviceTypeNotAllowed")) break
+            note("device type $first not allowed for this title, asking as $os")
+            session = session.withOs(os)
+            reply = start(os)
+        }
+        if (reply.status in 200..299 && session.osName != first) note("started as ${session.osName}")
+        return reply
+    }
+
+    private fun start(os: String): XboxCloudSession.Reply {
         val body = JSONObject().put("clientSessionId", "").put("titleId", titleId).put("systemUpdateGroup", "")
             .put("settings", JSONObject().put("nanoVersion", "V3;WebrtcTransport.dll").put("enableOptionalDataCollection", false)
                 .put("enableTextToSpeech", false).put("highContrast", 0).put("locale", settings.language.ifEmpty { java.util.Locale.getDefault().toLanguageTag() })
                 .put("useIceConnection", false).put("timezoneOffsetMinutes", java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 60_000)
-                .put("sdkType", "web").put("osName", settings.osName))
+                .put("sdkType", "web").put("osName", os))
             .put("serverId", serverId).put("fallbackRegionNames", JSONArray())
         return XboxCloudSession.request(session, "POST", "/v5/sessions/$kind/play", body.toString()).also { reply ->
             if (reply.status in 200..299) path = JSONObject(reply.body).getString("sessionPath").trim('/')

@@ -22,6 +22,9 @@ internal object XboxCloudSession {
         val fresh get() = System.currentTimeMillis() < expiresAt - 5 * 60_000L
         val regions get() = regionList.size
 
+        /** The same server, asking as [os]. */
+        fun withOs(os: String): Session = Session(account, token, offering, baseUri, regionList, userToken, expiresAt, os)
+
         /** This session against [regionName]'s server (Microsoft's default when empty or unknown), asking as [os]. */
         fun forStream(regionName: String, os: String): Session = Session(account, token, offering,
             regionList.firstOrNull { it.name == regionName }?.baseUri ?: baseUri, regionList, userToken, expiresAt, os)

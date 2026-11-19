@@ -316,7 +316,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
             log("no cloud title for $product (requested $requested, list ${XboxCloudSession.titles(active).size})")
             error("This game can't be streamed with this account here.")
         }
-        val signals = XboxCloudSignalling(active, title, settings).also { signalling = it }
+        val signals = XboxCloudSignalling(active, title, settings, note = { log(it) }).also { signalling = it }
         log("$product -> $title, region ${java.net.URI(active.baseUri).host}, frame gen ${settings.frameGen}")
 
         val waitEstimate = XboxCloudSession.waitSeconds(active, title)
