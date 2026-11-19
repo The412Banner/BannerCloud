@@ -45,7 +45,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import com.banner.cloud.BuildConfig
+import com.banner.cloud.Updater
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -110,6 +114,11 @@ private fun PanelContent(
     fun pending(differs: (XboxCloudSettings) -> Boolean) = startedWith != null && differs(startedWith)
     var profiles by remember { mutableStateOf(XboxCloudSettings.wineProfiles(ctx)) }
     var naming by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var updateStatus by remember { mutableStateOf("") }
+    var checking by remember { mutableStateOf(false) }
+    var update by remember { mutableStateOf<Updater.Release?>(null) }
+    var installing by remember { mutableStateOf(false) }
 
     if (section == null || section == "stream") Section("Stream", if (live) "Applies to the next stream." else "Applies when a stream starts.") {
         if (XboxNativePlayerActivity.supported()) {
@@ -250,6 +259,44 @@ private fun PanelContent(
             { onChange(settings.copy(volume = (settings.volume + 25).coerceAtMost(300))) })
         Step("Controller rumble", if (settings.rumble == 0) "Off" else "${settings.rumble}%", { onChange(settings.copy(rumble = (settings.rumble - 25).coerceAtLeast(0))) },
             { onChange(settings.copy(rumble = (settings.rumble + 25).coerceAtMost(100))) })
+    }
+
+    if (section == null) Section("About", null) {
+        Text("Even Better Xcloud ${BuildConfig.VERSION_NAME} (${BuildConfig.GIT_SHA})",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(enabled = !checking && !installing, modifier = Modifier.padding(top = 6.dp), onClick = {
+            checking = true; updateStatus = ""
+            scope.launch {
+                when (val r = Updater.check()) {
+                    is Updater.Result.Available -> update = r.release
+                    Updater.Result.UpToDate -> updateStatus = "You're on the latest version."
+                    is Updater.Result.Failed -> updateStatus = "Couldn't check: ${r.message}"
+                }
+                checking = false
+            }
+        }) { Text(if (checking) "Checking…" else "Check for updates") }
+        if (updateStatus.isNotEmpty()) Text(updateStatus, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+
+    val up = update
+    if (up != null) {
+        AlertDialog(
+            onDismissRequest = { if (!installing) update = null },
+            title = { Text("Update available") },
+            text = { Text("Version ${up.version} is available (${up.size / 1_000_000} MB)." +
+                if (installing) "\n\nDownloading…" else "") },
+            confirmButton = { TextButton(enabled = !installing, onClick = {
+                if (Updater.ensureInstallPermission(ctx)) {
+                    installing = true
+                    scope.launch {
+                        val ok = runCatching { Updater.install(ctx, Updater.download(ctx, up)) }.isSuccess
+                        if (!ok) { installing = false; update = null; updateStatus = "Download failed." }
+                    }
+                } else update = null
+            }) { Text(if (installing) "Downloading…" else "Update") } },
+            dismissButton = { TextButton(enabled = !installing, onClick = { update = null }) { Text("Later") } },
+        )
     }
 
     if (naming) {

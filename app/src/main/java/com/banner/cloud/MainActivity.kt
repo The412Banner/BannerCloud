@@ -72,6 +72,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import com.banner.cloud.compat.OutlinedAlertDialog as AlertDialog
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -294,6 +296,13 @@ private fun LibraryScreen(activity: MainActivity, account: String, shownName: St
     LaunchedEffect(filter) { if (filter == Filter.REMOTE && consoles == null) loadConsoles() }
     val gamepad = remember { hasGamepad() }
 
+    // Quiet update check on launch: only surfaces a prompt when a newer release exists.
+    var updateRelease by remember { mutableStateOf<Updater.Release?>(null) }
+    var updateInstalling by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        (Updater.check() as? Updater.Result.Available)?.let { updateRelease = it.release }
+    }
+
     LaunchedEffect(externalMessage) { if (externalMessage != null) { message = externalMessage; onMessageShown() } }
     LaunchedEffect(message) { if (message != null) { delay(6000); message = null } }
 
@@ -377,6 +386,26 @@ private fun LibraryScreen(activity: MainActivity, account: String, shownName: St
                     .clickable { message = null }) {
                 Text(message.orEmpty(), Modifier.padding(horizontal = 18.dp, vertical = 14.dp), color = MaterialTheme.colorScheme.onSurface)
             }
+        }
+
+        val up = updateRelease
+        if (up != null) {
+            AlertDialog(
+                onDismissRequest = { if (!updateInstalling) updateRelease = null },
+                title = { Text("Update available") },
+                text = { Text("Even Better Xcloud ${up.version} is available (${up.size / 1_000_000} MB)." +
+                    if (updateInstalling) "\n\nDownloading…" else "") },
+                confirmButton = { TextButton(enabled = !updateInstalling, onClick = {
+                    if (Updater.ensureInstallPermission(ctx)) {
+                        updateInstalling = true
+                        scope.launch {
+                            val ok = runCatching { Updater.install(ctx, Updater.download(ctx, up)) }.isSuccess
+                            if (!ok) { updateInstalling = false; updateRelease = null; message = "Update download failed." }
+                        }
+                    } else updateRelease = null
+                }) { Text(if (updateInstalling) "Downloading…" else "Update") } },
+                dismissButton = { TextButton(enabled = !updateInstalling, onClick = { updateRelease = null }) { Text("Later") } },
+            )
         }
     }
 }
