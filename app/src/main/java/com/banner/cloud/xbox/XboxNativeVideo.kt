@@ -22,6 +22,9 @@ import java.util.ArrayDeque
  * (Win-FG, or LSFG with the user's Lossless.dll) multiplies it. Android 10+ (ImageReader usage flags).
  */
 internal class XboxNativeVideo(private val context: Context, eglBase: EglBase, private val log: (String) -> Unit) : VideoSink {
+    /** Called once, on a background thread, when the first video frame reaches the screen. */
+    @Volatile var onFirstFrame: (() -> Unit)? = null
+
     companion object {
         init { System.loadLibrary("vulkan_renderer") }
         const val FG_OFF = "off"
@@ -122,7 +125,10 @@ internal class XboxNativeVideo(private val context: Context, eglBase: EglBase, p
             // Without frame generation a target below the stream's rate drops stream frames evenly.
             val now = System.nanoTime()
             val skip = frameGen == FG_OFF && fpsTarget in 1 until 60 && now - lastSubmitNs < 1_000_000_000L / fpsTarget - 2_000_000L
-            if (handle != 0L && buffer != null && !skip) { nativeFrame(handle, buffer, image.width, image.height); frames++; lastSubmitNs = now }
+            if (handle != 0L && buffer != null && !skip) {
+                nativeFrame(handle, buffer, image.width, image.height); frames++; lastSubmitNs = now
+                onFirstFrame?.let { onFirstFrame = null; it() }
+            }
             buffer?.close()
             held.addLast(image)
             while (held.size > 2) held.removeFirst().close()

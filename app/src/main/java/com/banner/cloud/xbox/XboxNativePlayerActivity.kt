@@ -82,6 +82,10 @@ class XboxNativePlayerActivity : ComponentActivity() {
     @Volatile private var endedInBackground = false
     private var backgroundEnd: Runnable? = null
     private var notice: androidx.compose.ui.platform.ComposeView? = null
+    // Launch slideshow (the game's art until the first frame).
+    private val artUrls = androidx.compose.runtime.mutableStateListOf<String>()
+    private var artVisible by androidx.compose.runtime.mutableStateOf(true)
+    private fun hideArt() { runOnUiThread { artVisible = false }; show("") }
     @Volatile private var regionNames = emptyList<String>()
     @Volatile private var serverName: String? = null
     private val candidates = mutableListOf<IceCandidate>()
@@ -115,7 +119,14 @@ class XboxNativePlayerActivity : ComponentActivity() {
         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         surfaceView = SurfaceView(this)
         root.addView(surfaceView, FrameLayout.LayoutParams(-1, -1))
-        status = TextView(this).apply { setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER }
+        val gameTitle = intent.getStringExtra("title").orEmpty()
+        root.addView(androidx.compose.ui.platform.ComposeView(this).apply {
+            setContent { com.banner.cloud.ui.CloudTheme { com.banner.cloud.ui.LaunchArt(artUrls, gameTitle, artVisible) } }
+        }, FrameLayout.LayoutParams(-1, -1))
+        loadArt(intent.getStringExtra("product").orEmpty())
+        status = TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 16f; gravity = Gravity.CENTER; setShadowLayer(10f, 0f, 0f, Color.BLACK)
+        }
         root.addView(status, FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM).apply { bottomMargin = 120 })
         overlay = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 12f; typeface = android.graphics.Typeface.MONOSPACE
@@ -129,6 +140,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
 
         val egl = EglBase.create().also { eglBase = it }
         val nativeVideo = XboxNativeVideo(this, egl) { log(it) }.also { video = it }
+        nativeVideo.onFirstFrame = { hideArt() }
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(holder: SurfaceHolder) {}
             override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -148,6 +160,18 @@ class XboxNativePlayerActivity : ComponentActivity() {
     }
 
     private fun log(text: String) = XboxDiag.log(applicationContext, "native player: ${text.take(240)}")
+
+    /** The launch slideshow's pictures: the library's art at once, then the store's hero art and screenshots. */
+    private fun loadArt(requested: String) = Thread({
+        runCatching {
+            val account = XboxAccountStore.signedInAs(applicationContext) ?: return@runCatching
+            val game = XboxLibraryCache.read(applicationContext, account, Xodus.market())?.games?.firstOrNull { it.id == requested }
+            val first = listOfNotNull(game?.heroUrl)
+            if (first.isNotEmpty()) runOnUiThread { if (artUrls.isEmpty()) artUrls.addAll(first) }
+            val more = XboxCatalog.launchArt(requested)
+            if (more.isNotEmpty()) runOnUiThread { artUrls.addAll(more.filter { it !in artUrls }) }
+        }.onFailure { log("launch art: ${it.javaClass.simpleName}") }
+    }, "launch-art").start()
     private fun show(text: String) = runOnUiThread { status.text = text; status.visibility = if (text.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE }
 
     private fun fail(stage: String, detail: String) {
@@ -390,7 +414,8 @@ class XboxNativePlayerActivity : ComponentActivity() {
             when (state) {
                 PeerConnection.PeerConnectionState.CONNECTED -> {
                     connectedOnce = true
-                    show("")
+                    // The slideshow stays until the first frame; zero-copy frames bypass that signal, so give up after 6 s.
+                    if (artVisible) { show("Starting the game…"); root.postDelayed({ if (artVisible) hideArt() }, 6000) } else show("")
                     video?.setFpsTarget(settings.fpsTarget)
                     video?.setFrameGeneration(effectiveFrameGen())
                 }

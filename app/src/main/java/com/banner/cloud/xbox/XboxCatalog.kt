@@ -217,6 +217,22 @@ internal object XboxCatalog {
             if (installable) pc.maxOfOrNull { it.optLong("MaxDownloadSizeInBytes") } ?: 0L else 0L, market, access[id].orEmpty(), installable, streams)
     }
 
+    /** A game's wide art for the launch slideshow: hero art first, then the screenshots (store-images only). */
+    fun launchArt(id: String, market: String = Xodus.market()): List<String> {
+        val json = rawProducts(listOf(id.uppercase()), market).firstOrNull() ?: return emptyList()
+        val images = objects(objects(json.optJSONArray("LocalizedProperties")).firstOrNull()?.optJSONArray("Images"))
+        val order = listOf("SuperHeroArt", "TitledHeroArt", "Screenshot", "Hero")
+        return images.filter { it.optString("ImagePurpose") in order }
+            .sortedBy { order.indexOf(it.optString("ImagePurpose")) }
+            .mapNotNull { image ->
+                val raw = image.optString("Uri")
+                val url = if (raw.startsWith("//")) "https:$raw" else raw
+                runCatching { java.net.URI(url) }.getOrNull()?.takeIf {
+                    it.scheme == "https" && it.host in setOf("store-images.s-microsoft.com", "store-images.microsoft.com") && it.userInfo == null && it.port == -1
+                }?.toString()
+            }.distinct().take(12)
+    }
+
     fun objects(array: JSONArray?): List<JSONObject> = if (array == null) emptyList() else
         (0 until array.length()).mapNotNull { array.optJSONObject(it) }
 
