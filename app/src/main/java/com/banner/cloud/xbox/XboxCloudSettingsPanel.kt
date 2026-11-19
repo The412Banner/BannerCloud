@@ -115,9 +115,7 @@ private fun PanelContent(
         if (XboxNativePlayerActivity.supported()) {
             Choice("Player engine", listOf("web" to "Web", "native" to "Native (frame gen)"), settings.playerEngine,
                 pending { it.playerEngine != settings.playerEngine }) { onChange(settings.copy(playerEngine = it)) }
-            val lsfg = remember { com.banner.cloud.compat.LsfgNative.isDllAvailable(ctx) }
-            Choice("Frame generation", listOf("off" to "Off", "winfg" to "Win-FG 2×", "wfg" to "WFG 2×", "wfg3" to "WFG 3×", "wfg4" to "WFG 4×") +
-                (if (lsfg) listOf("lsfg" to "LSFG 2×", "lsfg3" to "LSFG 3×", "lsfg4" to "LSFG 4×") else emptyList()),
+            Choice("Frame generation", listOf("off" to "Off", "winfg" to "Win-FG 2×", "wfg" to "WFG 2×"),
                 settings.frameGen) { onChange(settings.copy(frameGen = it)) }
             Text("Native engine: Google's WebRTC and Bannerlator's Vulkan compositor, so Win-FG or WFG " +
                 "can add frames. Screen effects and the overlay levels apply to the web engine.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -144,13 +142,6 @@ private fun PanelContent(
         Toggle("Stop quality drops", "Keeps the resolution up when this device decodes slowly.", settings.preventDrops) { onChange(settings.copy(preventDrops = it)) }
     }
 
-    if ((section == null && XboxNativePlayerActivity.supported()) || section == "framerate") Section("Frame rate (native engine)",
-        "With frame generation this caps the rate shown, which is at most 2×, 3× or 4× the game's own rate (a 30 fps game: 60, 90 or 120). Without it, only targets below the stream's rate change anything.") {
-        Choice("Target", listOf(0 to "Screen's rate", 30 to "30 fps", 45 to "45 fps", 60 to "60 fps", 120 to "120 fps", 144 to "144 fps", 165 to "165 fps"),
-            settings.fpsLimit) { onChange(settings.copy(fpsLimit = it, fpsCustomOn = false)) }
-        Toggle("Custom frame rate", "Set any rate from 10 to 165 fps with the slider.", settings.fpsCustomOn) { onChange(settings.copy(fpsCustomOn = it)) }
-        if (settings.fpsCustomOn) SliderRow("Custom", settings.fpsCustom, 10, 165) { onChange(settings.copy(fpsCustom = it)) }
-    }
 
     if ((section == null && XboxNativePlayerActivity.supported()) || section == "latency") Section("Low latency (native engine)", null) {
         Toggle("Instant controller input", "Sends each press the moment it happens instead of every 16 ms.", settings.instantInput) {
@@ -186,7 +177,6 @@ private fun PanelContent(
         Toggle("CRT", "Scanlines and colour fringes.", settings.crt) { onChange(settings.copy(crt = it)) }
         Toggle("NTSC", "Old TV signal look.", settings.ntsc) { onChange(settings.copy(ntsc = it)) }
         Toggle("Toon", "Cartoon outlines.", settings.toon) { onChange(settings.copy(toon = it)) }
-        Choice("Frame-rate cap", listOf(0 to "Off", 30 to "30 fps", 45 to "45 fps", 60 to "60 fps"), settings.maxFps) { onChange(settings.copy(maxFps = it)) }
         Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { naming = true }) { Text("Save as profile") }
             OutlinedButton(onClick = { onChange(settings.withoutEffects()) }) { Text("Reset picture") }

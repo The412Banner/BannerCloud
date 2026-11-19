@@ -810,7 +810,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
                     androidx.compose.runtime.withFrameNanos { }
                     runCatching {
                         if (menuPage.isEmpty()) entries[lastMainEntry.coerceIn(0, 11)].requestFocus()
-                        else if (menuPage == "framegen") choices[FG_MODES.indexOf(current.frameGen).coerceIn(0, if (lsfg) 7 else 4)].requestFocus()
+                        else if (menuPage == "framegen") choices[FG_MODES.indexOf(current.frameGen).coerceIn(0, FG_MODES.size - 1)].requestFocus()
                     }
                 }
                 val cs = androidx.compose.material3.MaterialTheme.colorScheme
@@ -828,14 +828,12 @@ class XboxNativePlayerActivity : ComponentActivity() {
                         XboxNativeVideo.FG_WINFG -> "Win-FG 2×"; XboxNativeVideo.FG_WFG -> "WFG 2×"; XboxNativeVideo.FG_WFG3 -> "WFG 3×"; XboxNativeVideo.FG_WFG4 -> "WFG 4×"; XboxNativeVideo.FG_LSFG -> "LSFG 2×"
                         XboxNativeVideo.FG_LSFG3 -> "LSFG 3×"; XboxNativeVideo.FG_LSFG4 -> "LSFG 4×"; else -> "Off"
                     }
-                    fun fpsName(s: XboxCloudSettings) = if (s.fpsTarget == 0) "the screen's rate" else "${s.fpsTarget} fps"
                     when (menuPage) {
                         "" -> {
                             XboxMenuEntry("Resume", "Back to the game", entries[0], { lastMainEntry = 0 }) { closeMenu() }
                             XboxMenuEntry("Xbox menu", "The game's Xbox menu (also: Guide once)", entries[1], { lastMainEntry = 1 }) { closeMenu(); pressNexus() }
                             XboxMenuEntry("Frame generation & low latency", "Now: ${fgName(current.frameGen)}" + if (zeroCopy) " · zero-copy" else "",
                                 entries[2], { lastMainEntry = 2 }) { menuPage = "framegen" }
-                            XboxMenuEntry("Frame rate", "Target: ${fpsName(current)}", entries[3], { lastMainEntry = 3 }) { menuPage = "framerate" }
                             XboxMenuEntry("Stream quality", "Engine, resolution, region, codec, bitrate (next stream)", entries[4], { lastMainEntry = 4 }) { menuPage = "stream" }
                             XboxMenuEntry("Performance overlay and rumble", if (current.statsLevel == 0) "Overlay off"
                                 else "Overlay: " + listOf("", "FPS only", "Basic", "Detailed", "Full")[current.statsLevel] + ", " + current.statsLayout,
@@ -863,7 +861,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
                         }
                         "framegen" -> {
                             XboxMenuEntry("‹  Back", null) { menuPage = "" }
-                            val modes = if (lsfg) FG_MODES else FG_MODES.take(5)
+                            val modes = FG_MODES
                             modes.forEachIndexed { i, mode ->
                                 XboxMenuEntry((if (current.frameGen == mode) "✓  " else "") + fgName(mode), when (mode) {
                                     XboxNativeVideo.FG_WINFG -> "Win-FG frame generation; doubles the shown frame rate"
@@ -1090,7 +1088,8 @@ class XboxNativePlayerActivity : ComponentActivity() {
     companion object {
         /** How long a stream may stay in the background (Android froze the app ~70 s after it left the screen, 10-24). */
         private const val BACKGROUND_GRACE_MS = 45_000L
-        private val FG_MODES = listOf(XboxNativeVideo.FG_OFF, XboxNativeVideo.FG_WINFG, XboxNativeVideo.FG_WFG, XboxNativeVideo.FG_WFG3, XboxNativeVideo.FG_WFG4, XboxNativeVideo.FG_LSFG, XboxNativeVideo.FG_LSFG3, XboxNativeVideo.FG_LSFG4)
+        /** Offered frame generation: Off, Win-FG 2x, WFG 2x (11-18: no 3x/4x, no frame-rate target). */
+        private val FG_MODES = listOf(XboxNativeVideo.FG_OFF, XboxNativeVideo.FG_WINFG, XboxNativeVideo.FG_WFG)
 
         /** True when the native engine can run here (ImageReader GPU buffers need Android 10). */
         fun supported(): Boolean = Build.VERSION.SDK_INT >= 29

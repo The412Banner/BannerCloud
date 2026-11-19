@@ -135,7 +135,7 @@ data class XboxCloudSettings(
                 mouseSensitivity = json.optInt("mouseSensitivity", d.mouseSensitivity).coerceIn(20, 300),
                 micOn = json.optBoolean("micOn", d.micOn),
                 volume = json.optInt("volume", d.volume).coerceIn(100, 300), rumble = json.optInt("rumble", d.rumble).coerceIn(0, 100),
-                maxFps = json.optInt("maxFps", d.maxFps).coerceIn(0, 120),
+                maxFps = 0,   // the frame-rate cap was removed (11-18): every frame
                 brightness = json.optInt("brightness", d.brightness).coerceIn(-50, 50), contrast = json.optInt("contrast", d.contrast).coerceIn(-100, 100),
                 gamma = json.optDouble("gamma", 1.0).toFloat().coerceIn(0.5f, 3f), saturation = json.optInt("saturation", d.saturation).coerceIn(0, 200),
                 sharpen = json.optInt("sharpen", d.sharpen).coerceIn(0, 10),
@@ -144,9 +144,11 @@ data class XboxCloudSettings(
                 fxaa = json.optBoolean("fxaa"), toon = json.optBoolean("toon"), crt = json.optBoolean("crt"), ntsc = json.optBoolean("ntsc"),
                 profile = json.optString("profile", ""),
                 playerEngine = json.optString("playerEngine", d.playerEngine).takeIf { it == "native" } ?: "web",
-                frameGen = json.optString("frameGen", d.frameGen).takeIf { it in setOf("off", "winfg", "wfg", "wfg3", "wfg4", "lsfg", "lsfg3", "lsfg4") } ?: d.frameGen,
-                fpsLimit = json.optInt("fpsLimit", d.fpsLimit).takeIf { it in setOf(0, 30, 45, 60, 120, 144, 165) } ?: 0,
-                fpsCustomOn = json.optBoolean("fpsCustomOn", d.fpsCustomOn),
+                // Offered: Off, Win-FG 2x, WFG 2x (11-18); older picks map to the nearest of those.
+                frameGen = when (val fg = json.optString("frameGen", d.frameGen)) { "off", "winfg", "wfg" -> fg; "wfg3", "wfg4" -> "wfg"; else -> d.frameGen },
+                // The frame-rate target and custom rate were removed (11-18): the screen's own rate.
+                fpsLimit = 0,
+                fpsCustomOn = false,
                 fpsCustom = json.optInt("fpsCustom", d.fpsCustom).coerceIn(10, 165),
                 instantInput = json.optBoolean("instantInput", d.instantInput), smallBuffer = json.optBoolean("smallBuffer", d.smallBuffer),
                 fastDecoder = json.optBoolean("fastDecoder", d.fastDecoder), zeroCopy = json.optBoolean("zeroCopy", d.zeroCopy),
