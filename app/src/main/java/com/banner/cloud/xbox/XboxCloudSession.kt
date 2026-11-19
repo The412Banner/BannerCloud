@@ -49,7 +49,7 @@ internal object XboxCloudSession {
             json.optString("userToken").takeIf { !json.isNull("userToken") && it.isNotEmpty() }, System.currentTimeMillis() + seconds * 1000).also { cached = it }
     }
 
-    fun clear() { cached = null; titleIds = null }
+    fun clear() { cached = null; titleIds = null; looked = null }
 
     @Volatile private var titleIds: Pair<String, Map<String, String>>? = null
 
@@ -67,6 +67,29 @@ internal object XboxCloudSession {
         }.toMap()
         titleIds = session.account to map
         return map
+    }
+
+    @Volatile private var looked: Pair<String, MutableMap<String, String>>? = null
+
+    /**
+     * The cloud title id for one Store product: the account's title list first, else Microsoft's lookup by
+     * product id (POST /v2/titles with alternateIds, as Better xCloud's getTitleInfo, MIT). The list does not
+     * include every game the account can stream (games it owns outside Game Pass), the lookup does.
+     */
+    fun titleFor(session: Session, productId: String): String? {
+        val product = productId.uppercase()
+        titles(session)[product]?.let { return it }
+        val cache = looked?.takeIf { it.first == session.account }?.second ?: HashMap<String, String>().also { looked = session.account to it }
+        cache[product]?.let { return it }
+        val body = JSONObject().put("alternateIds", JSONArray().put(product)).put("alternateIdType", "productId").toString()
+        val reply = request(session, "POST", "/v2/titles", body)
+        check(reply.status == 200) { "Xbox Cloud Gaming answered ${reply.status}" }
+        val row = JSONObject(reply.body).optJSONArray("results")?.optJSONObject(0) ?: return null
+        val title = row.optString("titleId")
+        val rowProduct = row.optJSONObject("details")?.optString("productId")?.uppercase().orEmpty()
+        if (title.isBlank() || title.length > 64 || (rowProduct.isNotEmpty() && rowProduct != product)) return null
+        cache[product] = title
+        return title
     }
 
     class Reply(val status: Int, val body: String)

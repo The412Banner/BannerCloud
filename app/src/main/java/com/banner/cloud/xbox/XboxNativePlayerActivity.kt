@@ -157,7 +157,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
             "The stream stopped reaching this device ($detail). Restart the stream to play again: the game starts over, " +
                 "unsaved progress is lost.", webPlayer = false)
         else showNotice("The native stream could not start ($stage)",
-            "$detail\n\nYou can try again, or use the web player instead (Xbox › Profile › Cloud gaming settings › Player engine).",
+            "$detail\n\nYou can try again, or use the web player instead (Settings › Player engine).",
             webPlayer = true)
     }
 
@@ -248,7 +248,11 @@ class XboxNativePlayerActivity : ComponentActivity() {
         val active = XboxCloudSession.get(applicationContext, account).forStream(settings.region, settings.osName)
         regionNames = active.regionList.map { it.name }
         serverName = active.regionList.firstOrNull { it.baseUri == active.baseUri }?.name
-        val title = XboxCloudSession.titles(active)[product] ?: error("This game can't be streamed with this account here.")
+        val title = XboxCloudSession.titleFor(active, product)
+            ?: (if (requested.uppercase() != product.uppercase()) XboxCloudSession.titleFor(active, requested) else null) ?: run {
+            log("no cloud title for $product (requested $requested, list ${XboxCloudSession.titles(active).size})")
+            error("This game can't be streamed with this account here.")
+        }
         val signals = XboxCloudSignalling(active, title, settings).also { signalling = it }
         log("$product -> $title, region ${java.net.URI(active.baseUri).host}, frame gen ${settings.frameGen}")
 

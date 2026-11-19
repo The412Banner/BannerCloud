@@ -56,7 +56,7 @@ import com.banner.cloud.compat.XmbKeyboardWindow
 
 /**
  * Every Xbox Cloud Gaming player setting, as rows a controller can drive (each value has − / + buttons).
- * Shared by Xbox › Profile › Cloud gaming settings and the in-player menu ([live] = changes reach the stream
+ * Shared by Settings and the in-player menu ([live] = changes reach the stream
  * at once; stream-start settings say they apply to the next stream).
  */
 @Composable

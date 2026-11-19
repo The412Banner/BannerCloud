@@ -82,7 +82,7 @@ class XboxCloudPlayerActivity : ComponentActivity() {
                 val product = cached?.cloudId ?: requested
                 webUrl = (cached ?: XboxGame(requested, intent.getStringExtra("title").orEmpty())).cloudUrl
                 val active = XboxCloudSession.get(applicationContext, account)
-                val title = XboxCloudSession.titles(active)[product] ?: error("This game can't be streamed with this account here.")
+                val title = XboxCloudSession.titleFor(active, product) ?: error("This game can't be streamed with this account here.")
                 settings = XboxCloudSettings.load(applicationContext)
                 startedWith = settings
                 session = active.forStream(settings.region, settings.osName); titleId = title
