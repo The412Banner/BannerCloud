@@ -116,7 +116,7 @@ private fun PanelContent(
             Choice("Player engine", listOf("web" to "Web", "native" to "Native (frame gen)"), settings.playerEngine,
                 pending { it.playerEngine != settings.playerEngine }) { onChange(settings.copy(playerEngine = it)) }
             val lsfg = remember { com.banner.cloud.compat.LsfgNative.isDllAvailable(ctx) }
-            Choice("Frame generation", listOf("off" to "Off", "winfg" to "Win-FG 2×", "wfg" to "WFG 2×") +
+            Choice("Frame generation", listOf("off" to "Off", "winfg" to "Win-FG 2×", "wfg" to "WFG 2×", "wfg3" to "WFG 3×", "wfg4" to "WFG 4×") +
                 (if (lsfg) listOf("lsfg" to "LSFG 2×", "lsfg3" to "LSFG 3×", "lsfg4" to "LSFG 4×") else emptyList()),
                 settings.frameGen) { onChange(settings.copy(frameGen = it)) }
             Text("Native engine: Google's WebRTC and Bannerlator's Vulkan compositor, so Win-FG or WFG " +
@@ -145,7 +145,7 @@ private fun PanelContent(
     }
 
     if ((section == null && XboxNativePlayerActivity.supported()) || section == "framerate") Section("Frame rate (native engine)",
-        "With frame generation this is the rate shown; without it, only targets below the stream's 60 fps change anything.") {
+        "With frame generation this caps the rate shown, which is at most 2×, 3× or 4× the game's own rate (a 30 fps game: 60, 90 or 120). Without it, only targets below the stream's rate change anything.") {
         Choice("Target", listOf(0 to "Screen's rate", 30 to "30 fps", 45 to "45 fps", 60 to "60 fps", 120 to "120 fps", 144 to "144 fps", 165 to "165 fps"),
             settings.fpsLimit) { onChange(settings.copy(fpsLimit = it, fpsCustomOn = false)) }
         Toggle("Custom frame rate", "Set any rate from 10 to 165 fps with the slider.", settings.fpsCustomOn) { onChange(settings.copy(fpsCustomOn = it)) }

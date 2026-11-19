@@ -38,7 +38,7 @@ data class XboxCloudSettings(
     val ntsc: Boolean = false,
     val profile: String = "",               // the screen-effect profile last applied ("" = none)
     val playerEngine: String = "native",    // web | native (WebRTC library + Vulkan compositor, frame generation)
-    val frameGen: String = "winfg",         // native engine: off | winfg (2x) | wfg (2x) | lsfg | lsfg3 | lsfg4 (needs the imported Lossless.dll)
+    val frameGen: String = "winfg",         // native engine: off | winfg (2x) | wfg / wfg3 / wfg4 (2x/3x/4x) | lsfg | lsfg3 | lsfg4 (needs the imported Lossless.dll)
     val fpsLimit: Int = 0,                  // native engine target: 0 = the screen's rate, else 30/45/60/120/144/165
     val fpsCustomOn: Boolean = false,       // use fpsCustom instead of the presets
     val fpsCustom: Int = 60,                // 10..165
@@ -110,7 +110,7 @@ data class XboxCloudSettings(
                 fxaa = json.optBoolean("fxaa"), toon = json.optBoolean("toon"), crt = json.optBoolean("crt"), ntsc = json.optBoolean("ntsc"),
                 profile = json.optString("profile", ""),
                 playerEngine = json.optString("playerEngine", d.playerEngine).takeIf { it == "native" } ?: "web",
-                frameGen = json.optString("frameGen", d.frameGen).takeIf { it in setOf("off", "winfg", "wfg", "lsfg", "lsfg3", "lsfg4") } ?: d.frameGen,
+                frameGen = json.optString("frameGen", d.frameGen).takeIf { it in setOf("off", "winfg", "wfg", "wfg3", "wfg4", "lsfg", "lsfg3", "lsfg4") } ?: d.frameGen,
                 fpsLimit = json.optInt("fpsLimit", d.fpsLimit).takeIf { it in setOf(0, 30, 45, 60, 120, 144, 165) } ?: 0,
                 fpsCustomOn = json.optBoolean("fpsCustomOn", d.fpsCustomOn),
                 fpsCustom = json.optInt("fpsCustom", d.fpsCustom).coerceIn(10, 165),

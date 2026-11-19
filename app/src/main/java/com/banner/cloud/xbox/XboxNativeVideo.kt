@@ -30,11 +30,14 @@ internal class XboxNativeVideo(private val context: Context, eglBase: EglBase, p
         const val FG_OFF = "off"
         const val FG_WINFG = "winfg"
         const val FG_WFG = "wfg"
+        const val FG_WFG3 = "wfg3"
+        const val FG_WFG4 = "wfg4"
+        fun isWfg(mode: String) = mode == FG_WFG || mode == FG_WFG3 || mode == FG_WFG4
         const val FG_LSFG = "lsfg"
         const val FG_LSFG3 = "lsfg3"
         const val FG_LSFG4 = "lsfg4"
         fun isLsfg(mode: String) = mode == FG_LSFG || mode == FG_LSFG3 || mode == FG_LSFG4
-        fun multiplier(mode: String) = when (mode) { FG_LSFG3 -> 3; FG_LSFG4 -> 4; FG_OFF -> 0; else -> 2 }
+        fun multiplier(mode: String) = when (mode) { FG_LSFG3, FG_WFG3 -> 3; FG_LSFG4, FG_WFG4 -> 4; FG_OFF -> 0; else -> 2 }
         private const val ENGINE_LSFG = 0
         private const val ENGINE_WINFG = 1
         private const val ENGINE_WFG = 2
@@ -163,7 +166,8 @@ internal class XboxNativeVideo(private val context: Context, eglBase: EglBase, p
         when {
             frameGen == FG_WINFG -> nativeFrameGen(handle, ENGINE_WINFG, 2, com.banner.cloud.compat.FgDefaults.FRAMEGEN_DEFAULT_FLOW_SCALE,
                 cap, com.banner.cloud.compat.FgDefaults.FRAMEGEN_DEFAULT_MODEL, 2, null)
-            frameGen == FG_WFG -> nativeFrameGen(handle, ENGINE_WFG, 2, com.banner.cloud.compat.FgDefaults.FRAMEGEN_DEFAULT_FLOW_SCALE,
+            // WFG fills up to the target rate; the multiplier caps the generated frames per real one (1, 2 or 3).
+            isWfg(frameGen) -> nativeFrameGen(handle, ENGINE_WFG, multiplier(frameGen), com.banner.cloud.compat.FgDefaults.FRAMEGEN_DEFAULT_FLOW_SCALE,
                 cap, 0, 0, null)
             isLsfg(frameGen) -> {
                 val cache = com.banner.cloud.compat.LsfgNative.cacheFile(context)

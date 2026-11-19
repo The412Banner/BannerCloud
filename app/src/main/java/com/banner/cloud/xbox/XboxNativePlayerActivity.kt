@@ -619,13 +619,13 @@ class XboxNativePlayerActivity : ComponentActivity() {
             com.banner.cloud.ui.CloudTheme {
                 var current by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(settings) }
                 val entries = androidx.compose.runtime.remember { List(7) { androidx.compose.ui.focus.FocusRequester() } }
-                val choices = androidx.compose.runtime.remember { List(6) { androidx.compose.ui.focus.FocusRequester() } }
+                val choices = androidx.compose.runtime.remember { List(8) { androidx.compose.ui.focus.FocusRequester() } }
                 androidx.compose.runtime.LaunchedEffect(menuPage) {
                     // Wait a frame so the entries are attached before one of them takes the selection.
                     androidx.compose.runtime.withFrameNanos { }
                     runCatching {
                         if (menuPage.isEmpty()) entries[lastMainEntry.coerceIn(0, 6)].requestFocus()
-                        else if (menuPage == "framegen") choices[FG_MODES.indexOf(current.frameGen).coerceIn(0, if (lsfg) 5 else 2)].requestFocus()
+                        else if (menuPage == "framegen") choices[FG_MODES.indexOf(current.frameGen).coerceIn(0, if (lsfg) 7 else 4)].requestFocus()
                     }
                 }
                 val cs = androidx.compose.material3.MaterialTheme.colorScheme
@@ -640,7 +640,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
                         style = androidx.compose.material3.MaterialTheme.typography.titleMedium, color = cs.onSurface,
                         modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                     fun fgName(mode: String) = when (mode) {
-                        XboxNativeVideo.FG_WINFG -> "Win-FG 2×"; XboxNativeVideo.FG_WFG -> "WFG 2×"; XboxNativeVideo.FG_LSFG -> "LSFG 2×"
+                        XboxNativeVideo.FG_WINFG -> "Win-FG 2×"; XboxNativeVideo.FG_WFG -> "WFG 2×"; XboxNativeVideo.FG_WFG3 -> "WFG 3×"; XboxNativeVideo.FG_WFG4 -> "WFG 4×"; XboxNativeVideo.FG_LSFG -> "LSFG 2×"
                         XboxNativeVideo.FG_LSFG3 -> "LSFG 3×"; XboxNativeVideo.FG_LSFG4 -> "LSFG 4×"; else -> "Off"
                     }
                     fun fpsName(s: XboxCloudSettings) = if (s.fpsTarget == 0) "the screen's rate" else "${s.fpsTarget} fps"
@@ -662,11 +662,13 @@ class XboxNativePlayerActivity : ComponentActivity() {
                         }
                         "framegen" -> {
                             XboxMenuEntry("‹  Back", null) { menuPage = "" }
-                            val modes = if (lsfg) FG_MODES else FG_MODES.take(3)
+                            val modes = if (lsfg) FG_MODES else FG_MODES.take(5)
                             modes.forEachIndexed { i, mode ->
                                 XboxMenuEntry((if (current.frameGen == mode) "✓  " else "") + fgName(mode), when (mode) {
                                     XboxNativeVideo.FG_WINFG -> "Win-FG frame generation; doubles the shown frame rate"
                                     XboxNativeVideo.FG_WFG -> "WFG (WinNative) frame generation; doubles the shown frame rate"
+                                    XboxNativeVideo.FG_WFG3 -> "WFG, up to three times the stream's frame rate (the target caps it)"
+                                    XboxNativeVideo.FG_WFG4 -> "WFG, up to four times the stream's frame rate (the target caps it)"
                                     XboxNativeVideo.FG_LSFG, XboxNativeVideo.FG_LSFG3, XboxNativeVideo.FG_LSFG4 ->
                                         "Lossless Scaling frame generation (Lossless.dll from Settings); the frame-rate target caps the output"
                                     else -> "Show the stream's own frames only"
@@ -833,7 +835,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
     companion object {
         /** How long a stream may stay in the background (Android froze the app ~70 s after it left the screen, 10-24). */
         private const val BACKGROUND_GRACE_MS = 45_000L
-        private val FG_MODES = listOf(XboxNativeVideo.FG_OFF, XboxNativeVideo.FG_WINFG, XboxNativeVideo.FG_WFG, XboxNativeVideo.FG_LSFG, XboxNativeVideo.FG_LSFG3, XboxNativeVideo.FG_LSFG4)
+        private val FG_MODES = listOf(XboxNativeVideo.FG_OFF, XboxNativeVideo.FG_WINFG, XboxNativeVideo.FG_WFG, XboxNativeVideo.FG_WFG3, XboxNativeVideo.FG_WFG4, XboxNativeVideo.FG_LSFG, XboxNativeVideo.FG_LSFG3, XboxNativeVideo.FG_LSFG4)
 
         /** True when the native engine can run here (ImageReader GPU buffers need Android 10). */
         fun supported(): Boolean = Build.VERSION.SDK_INT >= 29
