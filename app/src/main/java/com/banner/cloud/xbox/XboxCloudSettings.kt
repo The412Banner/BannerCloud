@@ -181,6 +181,18 @@ data class XboxCloudSettings(
          */
         val BYPASS_IPS = mapOf("br" to "169.150.198.66", "jp" to "138.199.21.239", "kr" to "121.125.60.151",
             "pl" to "45.134.212.66", "us" to "143.244.47.65")
+        /**
+         * True when the screen is 16:9 (like the stream): Fit, Stretch and Fill all look the same there, so the
+         * screen-fit setting is hidden.
+         */
+        fun screenIs16x9(context: Context): Boolean = runCatching {
+            val wm = context.getSystemService(android.view.WindowManager::class.java)
+            val (w, h) = if (android.os.Build.VERSION.SDK_INT >= 30) wm.maximumWindowMetrics.bounds.let { it.width() to it.height() }
+                else android.util.DisplayMetrics().also { @Suppress("DEPRECATION") wm.defaultDisplay.getRealMetrics(it) }.let { it.widthPixels to it.heightPixels }
+            val ratio = maxOf(w, h).toFloat() / minOf(w, h).coerceAtLeast(1)
+            Math.abs(ratio - 16f / 9f) < 0.02f
+        }.getOrDefault(false)
+
         val BYPASS_NAMES = listOf("off" to "Off", "br" to "Brazil", "jp" to "Japan", "kr" to "Korea", "pl" to "Poland", "us" to "United States")
 
         val LANGUAGES = listOf("" to "Device language", "en-US" to "English (US)", "en-GB" to "English (UK)", "de-DE" to "Deutsch",

@@ -156,7 +156,8 @@ private fun PanelContent(
     }
 
     if (section == null || section == "picture") Section("Picture", "Effects on the stream (both engines; not while zero-copy is on).") {
-        Choice("Screen fit", listOf("fit" to "Fit", "stretch" to "Stretch", "fill" to "Fill (crop)"), settings.videoFit) { onChange(settings.copy(videoFit = it)) }
+        val showFit = remember { !XboxCloudSettings.screenIs16x9(ctx) }
+        if (showFit) Choice("Screen fit", listOf("fit" to "Fit", "stretch" to "Stretch", "fill" to "Fill (crop)"), settings.videoFit) { onChange(settings.copy(videoFit = it)) }
         Choice("Profile", listOf("" to "None") + profiles.keys.map { it to it }, settings.profile) { name ->
             onChange(if (name.isEmpty()) settings.copy(profile = "") else settings.withEffects(profiles.getValue(name), name))
         }

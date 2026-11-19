@@ -838,7 +838,8 @@ class XboxNativePlayerActivity : ComponentActivity() {
                             XboxMenuEntry("Performance overlay and rumble", if (current.statsLevel == 0) "Overlay off"
                                 else "Overlay: " + listOf("", "FPS only", "Basic", "Detailed", "Full")[current.statsLevel] + ", " + current.statsLayout,
                                 entries[5], { lastMainEntry = 5 }) { menuPage = "overlay-native" }
-                            XboxMenuEntry("Picture", "Sharpen, colour, effects and screen fit", entries[6], { lastMainEntry = 6 }) { menuPage = "picture" }
+                            XboxMenuEntry("Picture", if (XboxCloudSettings.screenIs16x9(this@XboxNativePlayerActivity)) "Sharpen, colour and effects"
+                                else "Sharpen, colour, effects and screen fit", entries[6], { lastMainEntry = 6 }) { menuPage = "picture" }
                             XboxMenuEntry("Take a screenshot", "Saved to Pictures / Even Better Xcloud", entries[7], { lastMainEntry = 7 }) {
                                 closeMenu(); takeScreenshot()
                             }
