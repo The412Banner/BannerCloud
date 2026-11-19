@@ -21,7 +21,11 @@ internal class XboxNativeProtocol(
     pc: PeerConnection,
     private val pad: XboxNativePad,
     private val log: (String) -> Unit,
-    private val onRumble: (strong: Float, weak: Float, durationMs: Int) -> Unit,
+    private val onRumble: (index: Int, strong: Float, weak: Float, durationMs: Int) -> Unit,
+    /** The controller report heartbeat (ms): 4, 8 or 16. */
+    private val pollMs: Long = 16,
+    /** Called on every heartbeat (the mouse emulation's stick release). */
+    private val onTick: () -> Unit = {},
     private val onServerDisconnect: () -> Unit,
 ) {
     private val chat = pc.createDataChannel("chat", init("chatV1"))
@@ -31,7 +35,7 @@ internal class XboxNativeProtocol(
     private val timer = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "xcloud-input") }
     private var loop: ScheduledFuture<*>? = null
     private var sequence = 0
-    private var lastSent: XboxNativePad.State? = null
+    private val lastSent = HashMap<Int, XboxNativePad.State>()
     private var lastSentAt = 0L
     @Volatile var handshakeDone = false
         private set
@@ -112,6 +116,12 @@ internal class XboxNativeProtocol(
             .put("id", id).put("cv", "").toString())
     }
 
+    /** A co-op controller joined or left (slot [index]). */
+    fun announce(index: Int, added: Boolean) {
+        if (!handshakeDone) return
+        timer.execute { runCatching { gamepadChanged(index, added); if (!added) synchronized(this) { lastSent.remove(index) } } }
+    }
+
     private fun gamepadChanged(index: Int, added: Boolean) {
         send(control, JSONObject().put("message", "gamepadChanged").put("gamepadIndex", index).put("wasAdded", added).toString())
     }
@@ -136,7 +146,7 @@ internal class XboxNativeProtocol(
     private fun startInput() {
         // Client metadata: max touch points.
         send(input, header(8, 15).apply { put(1.toByte()); flip() })
-        loop = timer.scheduleWithFixedDelay({ runCatching { tick() } }, 16, 16, TimeUnit.MILLISECONDS)
+        loop = timer.scheduleWithFixedDelay({ runCatching { onTick(); tick() } }, pollMs, pollMs, TimeUnit.MILLISECONDS)
     }
 
     /** Instant controller input: send a report now if the state changed (the 16 ms loop stays as the heartbeat). */
@@ -145,25 +155,53 @@ internal class XboxNativeProtocol(
         if (handshakeDone && loop != null && System.nanoTime() - lastSentAt > 4_000_000L) timer.execute { runCatching { tick() } }
     }
 
-    /** Greenlight's queue: a gamepad frame when the state changed (sticks past a small threshold) or every 33 ms. */
+    /**
+     * One gamepad frame per active controller (local co-op: up to four, the first byte of each frame is its index),
+     * all in one report, when any state changed (sticks past a small threshold) or every 33 ms.
+     */
     @Synchronized
     private fun tick() {
-        val state = pad.snapshot()
+        val states = pad.activeSlots().map { it to pad.snapshot(it) }
         val now = System.nanoTime()
-        val changed = lastSent?.let { state.differsFrom(it) } ?: true
+        val changed = states.any { (index, state) -> lastSent[index]?.let { state.differsFrom(it) } ?: true }
         if (!changed && now - lastSentAt < 33_000_000L) return
-        lastSent = state; lastSentAt = now
-        val packet = header(2, 14 + 1 + 23).apply {
-            put(1.toByte())                    // one frame
-            put(0.toByte())                    // gamepad index
-            putShort(state.buttons.toShort())
-            putShort(axis(state.lx)); putShort(axis(-state.ly)); putShort(axis(state.rx)); putShort(axis(-state.ry))
-            putShort(trigger(state.lt)); putShort(trigger(state.rt))
-            putInt(1)                          // physical physicality
-            order(ByteOrder.BIG_ENDIAN); putInt(1); order(ByteOrder.LITTLE_ENDIAN)   // virtual physicality (Greenlight writes it big-endian)
+        states.forEach { (index, state) -> lastSent[index] = state }
+        lastSentAt = now
+        val packet = header(2, 14 + 1 + 23 * states.size).apply {
+            put(states.size.toByte())
+            states.forEach { (index, state) ->
+                put(index.toByte())
+                putShort(state.buttons.toShort())
+                putShort(axis(state.lx)); putShort(axis(-state.ly)); putShort(axis(state.rx)); putShort(axis(-state.ry))
+                putShort(trigger(state.lt)); putShort(trigger(state.rt))
+                putInt(1)                          // physical physicality
+                order(ByteOrder.BIG_ENDIAN); putInt(1); order(ByteOrder.LITTLE_ENDIAN)   // virtual physicality (Greenlight writes it big-endian)
+            }
             flip()
         }
         send(input, packet)
+    }
+
+    /** A relative mouse report (type 32, Greenlight's layout): movement, wheel, buttons (1 left, 2 right, 4 middle). */
+    fun sendMouse(dx: Int, dy: Int, wheelX: Int, wheelY: Int, buttons: Int) {
+        if (!handshakeDone) return
+        timer.execute {
+            runCatching {
+                send(input, header(32, 14 + 1 + 18).apply {
+                    put(1.toByte()); putInt(dx); putInt(dy); putInt(wheelX); putInt(wheelY); put(buttons.toByte()); put(0.toByte()); flip()
+                })
+            }
+        }
+    }
+
+    /** A keyboard report (type 64): one virtual-key code (the browser's keyCode values) down or up. */
+    fun sendKey(virtualKey: Int, down: Boolean) {
+        if (!handshakeDone || virtualKey !in 1..255) return
+        timer.execute {
+            runCatching {
+                send(input, header(64, 14 + 1 + 3).apply { put(1.toByte()); put(2.toByte()); put((if (down) 1 else 0).toByte()); put(virtualKey.toByte()); flip() })
+            }
+        }
     }
 
     private fun axis(value: Float): Short = (value * 32767).toInt().coerceIn(-32767, 32767).toShort()
@@ -172,10 +210,11 @@ internal class XboxNativeProtocol(
     private fun onInputData(buffer: DataChannel.Buffer) {
         val data = buffer.data.order(ByteOrder.LITTLE_ENDIAN)
         if (data.remaining() < 13 || (data.get(0).toInt() and 0xFF) != 128) return   // vibration report
+        val index = data.get(3).toInt() and 0xFF
         val strong = (data.get(4).toInt() and 0xFF) / 100f
         val weak = (data.get(5).toInt() and 0xFF) / 100f
         val duration = data.getShort(8).toInt() and 0xFFFF
-        onRumble(strong, weak, duration)
+        onRumble(index, strong, weak, duration)
     }
 
     fun close() {

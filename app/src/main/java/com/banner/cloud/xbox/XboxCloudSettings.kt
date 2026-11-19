@@ -27,6 +27,18 @@ data class XboxCloudSettings(
     val statsOpacity: Int = 55,             // overlay background, 0..90 %
     val statsColors: Boolean = true,        // colour fps, ping and loss by how good they are
     val videoFit: String = "fit",           // native engine: fit (letterbox) | stretch | fill (crop)
+    val coop: Boolean = false,              // native: each controller is its own player (up to 4)
+    val swapAB: Boolean = false,            // native: A and B swapped (Nintendo-style pads)
+    val swapXY: Boolean = false,
+    val remap: String = "",                 // native: extra button remaps, "from=to" report bits, comma-separated
+    val deadzone: Int = 8,                  // native: stick deadzone, 0..30 %
+    val invertRightY: Boolean = false,      // native: inverted look
+    val pollMs: Int = 16,                   // native: controller report heartbeat, 4 | 8 | 16 ms
+    val touchControls: String = "auto",     // native: on-screen controller: auto | on | off
+    val touchOpacity: Int = 60,             // 10..100 %
+    val mkbMode: String = "off",            // native: mouse and keyboard: off | controller (emulated pad) | native (games that support it)
+    val mouseSensitivity: Int = 100,        // 20..300 %
+    val micOn: Boolean = false,             // native: voice chat microphone
     val volume: Int = 100,                  // 100..300 %
     val rumble: Int = 100,                  // 0..100 %
     val maxFps: Int = 0,                    // 0 = every frame
@@ -61,7 +73,10 @@ data class XboxCloudSettings(
     fun toJson(): String = JSONObject()
         .put("resolution", resolution).put("region", region).put("bypassRegion", bypassRegion).put("language", language).put("codec", codec)
         .put("bitrateMbps", bitrateMbps).put("preventDrops", preventDrops).put("statsLevel", statsLevel).put("statsLayout", statsLayout).put("statsPosition", statsPosition).put("statsSize", statsSize)
-        .put("statsOpacity", statsOpacity).put("statsColors", statsColors).put("videoFit", videoFit).put("volume", volume)
+        .put("statsOpacity", statsOpacity).put("statsColors", statsColors).put("videoFit", videoFit)
+        .put("coop", coop).put("swapAB", swapAB).put("swapXY", swapXY).put("remap", remap).put("deadzone", deadzone)
+        .put("invertRightY", invertRightY).put("pollMs", pollMs).put("touchControls", touchControls).put("touchOpacity", touchOpacity)
+        .put("mkbMode", mkbMode).put("mouseSensitivity", mouseSensitivity).put("micOn", micOn).put("volume", volume)
         .put("rumble", rumble).put("maxFps", maxFps).put("brightness", brightness).put("contrast", contrast)
         .put("gamma", gamma.toDouble()).put("saturation", saturation).put("sharpen", sharpen).put("sharpenMode", sharpenMode)
         .put("deband", deband).put("fxaa", fxaa).put("toon", toon).put("crt", crt).put("ntsc", ntsc).put("profile", profile)
@@ -110,6 +125,15 @@ data class XboxCloudSettings(
                 statsSize = json.optInt("statsSize", d.statsSize).coerceIn(9, 20), statsOpacity = json.optInt("statsOpacity", d.statsOpacity).coerceIn(0, 90),
                 statsColors = json.optBoolean("statsColors", d.statsColors),
                 videoFit = json.optString("videoFit", d.videoFit).takeIf { it in setOf("fit", "stretch", "fill") } ?: d.videoFit,
+                coop = json.optBoolean("coop", d.coop), swapAB = json.optBoolean("swapAB", d.swapAB), swapXY = json.optBoolean("swapXY", d.swapXY),
+                remap = json.optString("remap", d.remap).take(200), deadzone = json.optInt("deadzone", d.deadzone).coerceIn(0, 30),
+                invertRightY = json.optBoolean("invertRightY", d.invertRightY),
+                pollMs = json.optInt("pollMs", d.pollMs).takeIf { it in setOf(4, 8, 16) } ?: d.pollMs,
+                touchControls = json.optString("touchControls", d.touchControls).takeIf { it in setOf("auto", "on", "off") } ?: d.touchControls,
+                touchOpacity = json.optInt("touchOpacity", d.touchOpacity).coerceIn(10, 100),
+                mkbMode = json.optString("mkbMode", d.mkbMode).takeIf { it in setOf("off", "controller", "native") } ?: d.mkbMode,
+                mouseSensitivity = json.optInt("mouseSensitivity", d.mouseSensitivity).coerceIn(20, 300),
+                micOn = json.optBoolean("micOn", d.micOn),
                 volume = json.optInt("volume", d.volume).coerceIn(100, 300), rumble = json.optInt("rumble", d.rumble).coerceIn(0, 100),
                 maxFps = json.optInt("maxFps", d.maxFps).coerceIn(0, 120),
                 brightness = json.optInt("brightness", d.brightness).coerceIn(-50, 50), contrast = json.optInt("contrast", d.contrast).coerceIn(-100, 100),

@@ -195,6 +195,48 @@ private fun PanelContent(
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
     }
 
+    if ((section == null && XboxNativePlayerActivity.supported()) || section == "controller") Section("Controller (native engine)", null) {
+        Toggle("Local co-op", "Each controller is its own player (up to four).", settings.coop) { onChange(settings.copy(coop = it)) }
+        Toggle("Swap A and B", "For Nintendo-style button layouts.", settings.swapAB) { onChange(settings.copy(swapAB = it)) }
+        Toggle("Swap X and Y", "For Nintendo-style button layouts.", settings.swapXY) { onChange(settings.copy(swapXY = it)) }
+        Toggle("Invert look", "The right stick's up and down are swapped.", settings.invertRightY) { onChange(settings.copy(invertRightY = it)) }
+        Step("Stick deadzone", "${settings.deadzone}%", { onChange(settings.copy(deadzone = (settings.deadzone - 2).coerceAtLeast(0))) },
+            { onChange(settings.copy(deadzone = (settings.deadzone + 2).coerceAtMost(30))) })
+        Choice("Input rate", listOf(4 to "250 Hz", 8 to "125 Hz", 16 to "60 Hz"), settings.pollMs,
+            pending { it.pollMs != settings.pollMs }) { onChange(settings.copy(pollMs = it)) }
+        val pairs = remember(settings.remap) {
+            settings.remap.split(',').mapNotNull { p -> p.split('=').mapNotNull { it.trim().toIntOrNull() }.takeIf { it.size == 2 }?.let { it[0] to it[1] } }.toMap()
+        }
+        Text("Button remapping", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+        XboxNativePad.BUTTON_NAMES.forEach { (bit, name) ->
+            Choice(name, XboxNativePad.BUTTON_NAMES.map { it.first to it.second }, pairs[bit] ?: bit) { target ->
+                val next = pairs.toMutableMap().apply { if (target == bit) remove(bit) else put(bit, target) }
+                onChange(settings.copy(remap = next.entries.joinToString(",") { "${it.key}=${it.value}" }))
+            }
+        }
+        OutlinedButton(onClick = { onChange(settings.copy(remap = "", swapAB = false, swapXY = false)) }, modifier = Modifier.padding(top = 6.dp)) {
+            Text("Reset buttons")
+        }
+    }
+
+    if ((section == null && XboxNativePlayerActivity.supported()) || section == "input") Section("Touch, mouse and keyboard (native engine)", null) {
+        Choice("Touch controls", listOf("auto" to "Auto", "on" to "Always", "off" to "Off"), settings.touchControls) { onChange(settings.copy(touchControls = it)) }
+        Step("Touch controls opacity", "${settings.touchOpacity}%", { onChange(settings.copy(touchOpacity = (settings.touchOpacity - 10).coerceAtLeast(10))) },
+            { onChange(settings.copy(touchOpacity = (settings.touchOpacity + 10).coerceAtMost(100))) })
+        Text("Auto: shown when you touch the screen, hidden when a controller is used.", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Choice("Mouse and keyboard", listOf("off" to "Off", "controller" to "As a controller", "native" to "Native (supported games)"), settings.mkbMode) {
+            onChange(settings.copy(mkbMode = it))
+        }
+        Step("Mouse sensitivity", "${settings.mouseSensitivity}%", { onChange(settings.copy(mouseSensitivity = (settings.mouseSensitivity - 10).coerceAtLeast(20))) },
+            { onChange(settings.copy(mouseSensitivity = (settings.mouseSensitivity + 10).coerceAtMost(300))) })
+        Text("Click in the stream to capture the mouse; open the menu to release it. As a controller: WASD move, mouse aims, " +
+            "left click RT, right click LT, Space A, C B, R X, V Y, Q LB, F RB, Enter Menu, Tab View.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Toggle("Microphone", "Voice chat; asks for the permission the first time.", settings.micOn) { onChange(settings.copy(micOn = it)) }
+    }
+
     // "overlay-native": the native player's page (its sound has no volume boost).
     if (section == null || section == "overlay" || section == "overlay-native") Section("Overlay and sound", null) {
         Choice("Performance overlay", listOf(0 to "Off", 1 to "FPS only", 2 to "Basic", 3 to "Detailed", 4 to "Full"), settings.statsLevel) {

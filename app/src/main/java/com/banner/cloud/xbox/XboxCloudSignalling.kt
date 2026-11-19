@@ -55,6 +55,17 @@ internal class XboxCloudSignalling(
         return if (posted.status !in 200..299) posted else poll("/$path/sdp")
     }
 
+    /**
+     * The microphone: a second offer once a send track is on the audio transceiver, flagged as a chat
+     * renegotiation (xbox-xcloud-player's stream.ts, MIT: requestId 2, isMediaStreamsChatRenegotiation).
+     */
+    fun chatSdp(offer: String): XboxCloudSession.Reply {
+        val body = JSONObject().put("messageType", "offer").put("sdp", offer).put("requestId", "2")
+            .put("configuration", JSONObject().put("isMediaStreamsChatRenegotiation", true))
+        val posted = XboxCloudSession.request(session, "POST", "/$path/sdp", body.toString())
+        return if (posted.status !in 200..299) posted else poll("/$path/sdp")
+    }
+
     fun ice(candidates: String): XboxCloudSession.Reply {
         val posted = XboxCloudSession.request(session, "POST", "/$path/ice", JSONObject().put("candidates", JSONArray(candidates)).toString())
         return if (posted.status !in 200..299) posted else poll("/$path/ice")

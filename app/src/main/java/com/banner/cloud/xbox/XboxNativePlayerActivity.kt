@@ -68,6 +68,24 @@ class XboxNativePlayerActivity : ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val ticker = Executors.newSingleThreadScheduledExecutor()
     private val pad = XboxNativePad()
+    private val mkb = XboxMkb(pad) { protocol }
+    /** The audio transceiver (send-receive): the microphone track goes on its sender. */
+    private var audioTransceiver: RtpTransceiver? = null
+    private var micSource: org.webrtc.AudioSource? = null
+    private var micTrack: org.webrtc.AudioTrack? = null
+    @Volatile private var micActive = false
+    private val micPermission = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) worker.execute { setMic(true) } else { show("Microphone permission denied"); root.postDelayed({ show("") }, 2500) }
+    }
+    // On-screen controller
+    private var touchVisible by androidx.compose.runtime.mutableStateOf(false)
+    private var touchOpacity by androidx.compose.runtime.mutableFloatStateOf(0.6f)
+    private var pointerWanted = false
+    private val deviceListener = object : android.hardware.input.InputManager.InputDeviceListener {
+        override fun onInputDeviceAdded(deviceId: Int) {}
+        override fun onInputDeviceChanged(deviceId: Int) {}
+        override fun onInputDeviceRemoved(deviceId: Int) { pad.onDeviceRemoved(deviceId) }
+    }
     private var eglBase: EglBase? = null
     private var factory: PeerConnectionFactory? = null
     private var pc: PeerConnection? = null
@@ -133,8 +151,20 @@ class XboxNativePlayerActivity : ComponentActivity() {
             setBackgroundColor(Color.argb(140, 0, 0, 0)); setPadding(12, 6, 12, 6); visibility = android.view.View.GONE
         }
         root.addView(overlay, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { topMargin = 16; rightMargin = 16 })
+        root.addView(androidx.compose.ui.platform.ComposeView(this).apply {
+            setContent {
+                com.banner.cloud.ui.TouchPad(touchVisible, touchOpacity,
+                    onState = { state -> pad.touchState = state; pad.onChanged?.invoke() },
+                    onWake = { if (settings.touchControls == "auto" && menu == null) touchVisible = true })
+            }
+        }, FrameLayout.LayoutParams(-1, -1))
         setContentView(root)
+        surfaceView.isFocusable = true; surfaceView.isFocusableInTouchMode = true
+        surfaceView.setOnCapturedPointerListener { _, event -> mkb.onCapturedPointer(event) }
+        getSystemService(android.hardware.input.InputManager::class.java)?.registerInputDeviceListener(deviceListener, android.os.Handler(mainLooper))
+        pad.onSlotChanged = { index, added -> protocol?.announce(index, added); log("controller ${index + 1} ${if (added) "joined" else "left"}") }
         settings = XboxCloudSettings.load(this)
+        applyInputSettings()
         applyDisplayRate(settings.fpsTarget)
         applyOverlay()
 
@@ -330,9 +360,9 @@ class XboxNativePlayerActivity : ComponentActivity() {
         val config = PeerConnection.RTCConfiguration(emptyList()).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
         val peer = f.createPeerConnection(config, observer) ?: error("WebRTC unavailable")
         pc = peer
-        peer.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV))
+        audioTransceiver = peer.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.SEND_RECV))
         peer.addTransceiver(MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO, RtpTransceiver.RtpTransceiverInit(RtpTransceiver.RtpTransceiverDirection.RECV_ONLY))
-        protocol = XboxNativeProtocol(peer, pad, { log(it) }, ::rumble) { runOnUiThread { finish() } }
+        protocol = XboxNativeProtocol(peer, pad, { log(it) }, ::rumble, settings.pollMs.toLong(), { mkb.tick() }) { runOnUiThread { finish() } }
         pad.onChanged = { if (settings.instantInput) protocol?.inputChanged() }
 
         val offer = await<SessionDescription> { done -> peer.createOffer(sdpObserver(done), MediaConstraints()) }
@@ -423,6 +453,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
                     if (artVisible) { show("Starting the game…"); root.postDelayed({ if (artVisible) hideArt() }, 6000) } else show("")
                     video?.setFpsTarget(settings.fpsTarget)
                     video?.setFrameGeneration(effectiveFrameGen())
+                    if (settings.micOn && !micActive) runOnUiThread { requestMic() }
                 }
                 PeerConnection.PeerConnectionState.FAILED -> fail("webrtc", "connection failed")
                 PeerConnection.PeerConnectionState.DISCONNECTED -> show("Connection lost…")
@@ -506,19 +537,99 @@ class XboxNativePlayerActivity : ComponentActivity() {
             return true
         }
         if (event.keyCode == KeyEvent.KEYCODE_BACK) { if (event.action == KeyEvent.ACTION_UP) openMenu(); return true }
-        if (pad.onKey(event)) return true
+        if (mkb.onKey(event)) return true
+        if (pad.onKey(event)) { hideTouchForPad(); return true }
         return super.dispatchKeyEvent(event)
     }
 
     // With the menu open, sticks and the hat go to Android unhandled, which turns them into D-pad keys for the menu.
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
-        (menu == null && pad.onMotion(event)) || super.dispatchGenericMotionEvent(event)
+        (menu == null && pad.onMotion(event).also { if (it) hideTouchForPad() }) || super.dispatchGenericMotionEvent(event)
 
-    private fun rumble(strong: Float, weak: Float, durationMs: Int) {
+    /** A mouse click during the stream starts pointer capture (mouse and keyboard on); the menu releases it. */
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (menu == null && settings.mkbMode != "off" && event.isFromSource(android.view.InputDevice.SOURCE_MOUSE) &&
+            event.actionMasked == MotionEvent.ACTION_DOWN) {
+            pointerWanted = true
+            surfaceView.requestFocus(); surfaceView.requestPointerCapture()
+            return true
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    /** The touch controls hide once a real controller is used (Auto). */
+    private fun hideTouchForPad() {
+        if (touchVisible && settings.touchControls == "auto") { touchVisible = false; pad.touchState = null }
+    }
+
+    /** Controller, touch and mouse/keyboard settings → the pad, the emulation and the on-screen controller. */
+    private fun applyInputSettings() {
+        pad.coop = settings.coop
+        pad.remap = XboxNativePad.remapTable(settings.swapAB, settings.swapXY, settings.remap)
+        pad.deadzone = settings.deadzone / 100f
+        pad.invertRightY = settings.invertRightY
+        if (mkb.mode != settings.mkbMode) mkb.mode = settings.mkbMode
+        mkb.sensitivity = settings.mouseSensitivity / 100f
+        touchOpacity = settings.touchOpacity / 100f
+        touchVisible = when (settings.touchControls) { "on" -> true; "off" -> false; else -> touchVisible }
+        if (!touchVisible) pad.touchState = null
+        if (settings.mkbMode == "off" && pointerWanted) { pointerWanted = false; surfaceView.releasePointerCapture() }
+    }
+
+    // ---- microphone ----
+
+    private fun requestMic() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) worker.execute { setMic(true) }
+        else micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+    }
+
+    /**
+     * Voice chat: the microphone track on the audio transceiver's sender, then the chat renegotiation (a new offer
+     * to /sdp); off = the track removed, no renegotiation (xbox-xcloud-player's chat.ts, MIT).
+     */
+    private fun setMic(on: Boolean) {
+        val peer = pc ?: return; val f = factory ?: return; val sender = audioTransceiver?.sender ?: return
+        val signals = signalling ?: return
+        if (on == micActive) return
+        if (!on) {
+            runCatching { sender.setTrack(null, false) }
+            runCatching { micTrack?.dispose(); micSource?.dispose() }
+            micTrack = null; micSource = null; micActive = false
+            log("microphone off"); show("Microphone off"); root.postDelayed({ show("") }, 2000)
+            return
+        }
+        runCatching {
+            val source = f.createAudioSource(MediaConstraints()).also { micSource = it }
+            val track = f.createAudioTrack("bx-mic", source).also { micTrack = it }
+            track.setEnabled(true)
+            sender.setTrack(track, false)
+            val offer = await<SessionDescription> { done -> peer.createOffer(sdpObserver(done), MediaConstraints()) }
+            val local = SessionDescription(offer.type, tweakOffer(offer.description))
+            await<Unit> { done -> peer.setLocalDescription(sdpObserver(done), local) }
+            val reply = signals.chatSdp(local.description)
+            check(reply.status in 200..299) { "chat sdp ${reply.status}" }
+            val answer = JSONObject(JSONObject(reply.body).getString("exchangeResponse"))
+            if (answer.has("status") && answer.optString("status") != "success") error("chat answer: ${answer.optString("status")}")
+            await<Unit> { done -> peer.setRemoteDescription(sdpObserver(done), SessionDescription(SessionDescription.Type.ANSWER, answer.getString("sdp"))) }
+            micActive = true
+            log("microphone on"); show("Microphone on"); root.postDelayed({ show("") }, 2000)
+        }.onFailure {
+            log("microphone: ${it.message ?: it.javaClass.simpleName}")
+            runCatching { sender.setTrack(null, false); micTrack?.dispose(); micSource?.dispose() }
+            micTrack = null; micSource = null; micActive = false
+            show("Microphone could not start"); root.postDelayed({ show("") }, 2500)
+        }
+    }
+
+    private fun rumble(index: Int, strong: Float, weak: Float, durationMs: Int) {
         val scale = settings.rumble / 100f
         val amplitude = (maxOf(strong, weak) * scale * 255).toInt().coerceIn(0, 255)
         if (amplitude == 0 || durationMs <= 0) return
-        val vibrator = (if (Build.VERSION.SDK_INT >= 31) getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
+        // Co-op players 2-4: their own controller's motor when it has one; player 1 (and the rest): this device.
+        val device = if (index > 0) pad.deviceFor(index)?.let { android.view.InputDevice.getDevice(it) } else null
+        val own = device?.let { d -> if (Build.VERSION.SDK_INT >= 31) d.vibratorManager.defaultVibrator else @Suppress("DEPRECATION") d.vibrator }
+            ?.takeIf { it.hasVibrator() }
+        val vibrator = own ?: (if (Build.VERSION.SDK_INT >= 31) getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
             else @Suppress("DEPRECATION") getSystemService(android.os.Vibrator::class.java)) ?: return
         runCatching { vibrator.vibrate(VibrationEffect.createOneShot(durationMs.coerceAtMost(1000).toLong(), amplitude)) }
     }
@@ -634,6 +745,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
     /** The player menu (as the web player's): Resume, Xbox menu, Frame generation, Stream quality, overlay, Leave. */
     private fun openMenu() {
         if (menu != null) return
+        if (pointerWanted) surfaceView.releasePointerCapture()
         pad.reset()
         menuPage = ""
         val regions = regionNames
@@ -642,13 +754,13 @@ class XboxNativePlayerActivity : ComponentActivity() {
         view.setContent {
             com.banner.cloud.ui.CloudTheme {
                 var current by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(settings) }
-                val entries = androidx.compose.runtime.remember { List(9) { androidx.compose.ui.focus.FocusRequester() } }
+                val entries = androidx.compose.runtime.remember { List(12) { androidx.compose.ui.focus.FocusRequester() } }
                 val choices = androidx.compose.runtime.remember { List(8) { androidx.compose.ui.focus.FocusRequester() } }
                 androidx.compose.runtime.LaunchedEffect(menuPage) {
                     // Wait a frame so the entries are attached before one of them takes the selection.
                     androidx.compose.runtime.withFrameNanos { }
                     runCatching {
-                        if (menuPage.isEmpty()) entries[lastMainEntry.coerceIn(0, 8)].requestFocus()
+                        if (menuPage.isEmpty()) entries[lastMainEntry.coerceIn(0, 11)].requestFocus()
                         else if (menuPage == "framegen") choices[FG_MODES.indexOf(current.frameGen).coerceIn(0, if (lsfg) 7 else 4)].requestFocus()
                     }
                 }
@@ -683,7 +795,19 @@ class XboxNativePlayerActivity : ComponentActivity() {
                             XboxMenuEntry("Take a screenshot", "Saved to Pictures / Even Better Xcloud", entries[7], { lastMainEntry = 7 }) {
                                 closeMenu(); takeScreenshot()
                             }
-                            XboxMenuEntry("Leave", "End the stream", entries[8], { lastMainEntry = 8 }) { finish() }
+                            XboxMenuEntry("Controller", (if (current.coop) "Co-op on" else "One player") +
+                                (if (current.swapAB || current.swapXY || current.remap.isNotEmpty()) " · remapped" else ""),
+                                entries[8], { lastMainEntry = 8 }) { menuPage = "controller" }
+                            XboxMenuEntry("Touch, mouse and keyboard", "Touch: ${current.touchControls} · mouse/keyboard: ${current.mkbMode}",
+                                entries[9], { lastMainEntry = 9 }) { menuPage = "input" }
+                            XboxMenuEntry(if (micActive) "Microphone: on" else "Microphone: off", "Voice chat in the game",
+                                entries[10], { lastMainEntry = 10 }) {
+                                val on = !micActive
+                                current = current.copy(micOn = on); settings = current; XboxCloudSettings.save(this@XboxNativePlayerActivity, current)
+                                closeMenu()
+                                if (on) requestMic() else worker.execute { setMic(false) }
+                            }
+                            XboxMenuEntry("Leave", "End the stream", entries[11], { lastMainEntry = 11 }) { finish() }
                             androidx.compose.material3.Text("Guide twice opens this menu; Back or Guide closes it.",
                                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant,
                                 modifier = androidx.compose.ui.Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
@@ -729,6 +853,9 @@ class XboxNativePlayerActivity : ComponentActivity() {
                                 if (rateChanged) { applyDisplayRate(changed.fpsTarget); video?.setFpsTarget(changed.fpsTarget) }
                                 video?.setFit(changed.videoFit)
                                 video?.setEffects(changed)
+                                applyInputSettings()
+                                if (changed.micOn && !micActive && connectedOnce) requestMic()
+                                else if (!changed.micOn && micActive) worker.execute { setMic(false) }
                                 applyOverlay()
                             }
                         }
@@ -812,6 +939,7 @@ class XboxNativePlayerActivity : ComponentActivity() {
         menu?.let { root.removeView(it) }
         menu = null
         pad.reset()
+        if (pointerWanted && settings.mkbMode != "off") root.post { surfaceView.requestFocus(); surfaceView.requestPointerCapture() }
     }
 
     private fun setFrameGen(mode: String) {
@@ -895,6 +1023,8 @@ class XboxNativePlayerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         closed = true
+        runCatching { getSystemService(android.hardware.input.InputManager::class.java)?.unregisterInputDeviceListener(deviceListener) }
+        runCatching { micTrack?.dispose(); micSource?.dispose() }
         ticker.shutdownNow()
         val signals = signalling
         Thread({ signals?.stop()?.let { log("session closed: ${it.status}") } }, "xcloud-native-stop").start()
