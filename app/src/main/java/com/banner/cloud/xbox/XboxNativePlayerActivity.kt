@@ -3,6 +3,7 @@ package com.banner.cloud.xbox
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.media.AudioAttributes
 import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
@@ -378,7 +379,14 @@ class XboxNativePlayerActivity : ComponentActivity() {
         log("latency: instant input ${settings.instantInput}, small buffer ${settings.smallBuffer}, fast decoder ${settings.fastDecoder}, " +
             "zero-copy ${zeroSurface != null}")
         val f = PeerConnectionFactory.builder()
+            // WebRTC defaults to voice-call audio (mono, speaker/earpiece only); game audio follows
+            // the normal output (HDMI, USB, Bluetooth) and keeps the stream's stereo.
             .setAudioDeviceModule(JavaAudioDeviceModule.builder(applicationContext)
+                .setAudioAttributes(AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build())
+                .setUseStereoOutput(true)
                 .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
                     override fun onWebRtcAudioRecordInitError(message: String) = log("microphone init error: $message")
                     override fun onWebRtcAudioRecordStartError(code: JavaAudioDeviceModule.AudioRecordStartErrorCode, message: String) =
